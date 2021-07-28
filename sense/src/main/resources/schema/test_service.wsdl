@@ -1,0 +1,38 @@
+<?xml version="1.0"?>
+
+<wsdl:definitions name="DataMgmtService" targetNamespace="http://ccr.ibs.sddc.army.mil/DataMgmt.wsdl" xmlns="http://schemas.xmlsoap.org/wsdl/" xmlns:soap="http://schemas.xmlsoap.org/wsdl/soap/" xmlns:tns="http://ccr.ibs.sddc.army.mil/DataMgmt.wsdl" xmlns:xsd="http://www.w3.org/2001/XMLSchema" xmlns:wsdl="http://schemas.xmlsoap.org/wsdl/">
+
+    <message name="SayHelloRequest">
+        <part name="firstName" type="xsd:string" />
+    </message>
+    <message name="SayHelloResponse">
+        <part name="greeting" type="xsd:string" />
+    </message>
+
+    <portType name="DataMgmt_PortType">
+        <operation name="sayHelloWorld">
+            <input message="tns:SayHelloRequest" />
+            <output message="tns:SayHelloResponse" />
+        </operation>
+    </portType>
+
+    <binding name="DataMgmt_Binding" type="tns:DataMgmt_PortType">
+        <soap:binding style="rpc" transport="http://schemas.xmlsoap.org/soap/http" />
+        <operation name="sayHelloWorld">
+            <soap:operation soapAction="sayHelloWorld" />
+            <input>
+                <soap:body encodingStyle="http://schemas.xmlsoap.org/soap/encoding" namespace="mil.army.sddc.ibs.ccr.DataMgmtWebService" use="encoded" />
+            </input>
+            <output>
+                <soap:body encodingStyle="http://schemas.xmlsoap.org/soap/encoding" namespace="mil.army.sddc.ibs.ccr.DataMgmtWebService" use="encoded" />
+            </output>
+        </operation>
+    </binding>
+
+    <service name="DataMgmt_Service">
+        <port binding="tns:DataMgmt_Binding" name="DataMgmt_Port">
+            <soap:address location="http://ccr.ibs.sddc.army.mil/SayHelloWorld" />
+        </port>
+    </service>
+
+</wsdl:definitions>
