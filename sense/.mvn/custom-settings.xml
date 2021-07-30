@@ -1,0 +1,33 @@
+<settings xmlns="http://maven.apache.org/SETTINGS/1.2.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://maven.apache.org/SETTINGS/1.2.0 http://maven.apache.org/xsd/settings-1.2.0.xsd">
+    <mirrors>
+        <mirror>
+            <id>unblock-java</id>
+            <mirrorOf>releases.java.net</mirrorOf>
+            <name>releases.java.net</name>
+            <url>http://maven.java.net/content/repositories/releases/</url>
+            <blocked>false</blocked>
+        </mirror>
+        <mirror>
+            <id>unblock-nexus-staging</id>
+            <mirrorOf>jvnet-nexus-staging</mirrorOf>
+            <name>jvnet-nexus-staging</name>
+            <url>http://maven.java.net/content/repositories/staging/</url>
+            <blocked>false</blocked>
+        </mirror>
+        <mirror>
+            <id>unblock-nexus-snapshot</id>
+            <mirrorOf>jvnet-nexus-snapshot</mirrorOf>
+            <name>jvnet-nexus-snapshot</name>
+            <url>http://maven.java.net/content/repositories/snapshots/</url>
+            <blocked>false</blocked>
+        </mirror>
+        <mirror>
+            <id>unblock-eclipse</id>
+            <mirrorOf>eclipse</mirrorOf>
+            <name>eclipse</name>
+            <url>http://download.eclipse.org/rt/eclipselink/maven.repo</url>
+            <blocked>false</blocked>
+        </mirror>
+
+    </mirrors>
+</settings>

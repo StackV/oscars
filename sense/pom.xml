@@ -72,15 +72,16 @@
                                     <goal>wsdl2java</goal>
                                 </goals>
                                 <configuration>
-                                    <wsdlRoot>${project.basedir}/src/main/resources/schema</wsdlRoot>
+                                    <wsdlRoot>${basedir}/src/main/resources/schema/</wsdlRoot>
                                     <includes>
-                                        <include>*.wsdl</include>
+                                        <include>test_service.wsdl</include>
                                     </includes>
                                     <sourceRoot>${basedir}/src/main/java</sourceRoot>
-
                                     <wsdlOptions>
                                         <wsdlOption>
-                                            <serviceName>DataMgmtService</serviceName>
+                                            <wsdl>${project.basedir}/src/main/resources/wsdl/test_service.wsdl</wsdl>
+                                            <wsdlLocation>classpath:wsdl/test_service.wsdl</wsdlLocation>
+                                            <serviceName>TestService</serviceName>
                                             <extraargs>
                                                 <extraarg>-verbose</extraarg>
                                                 <extraarg>-client</extraarg>
