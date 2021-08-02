@@ -35,7 +35,6 @@
         <module>pss</module>
         <module>backend</module>
         <module>nsi</module>
-        <module>sense</module>
         <module>migration</module>
         <module>frontend</module>
     </modules>

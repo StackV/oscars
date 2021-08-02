@@ -8,6 +8,11 @@ import org.springframework.web.bind.annotation.RestController;
 @RestController
 public class TestController {
 
+    @RequestMapping(value = "/api/greeting", method = RequestMethod.GET)
+    public ResponseEntity<?> getPublicGreeting() {
+        return ResponseEntity.ok("Greetings from open public method!");
+    }
+
     @RequestMapping(value = "/protected/greeting", method = RequestMethod.GET)
     public ResponseEntity<?> getProtectedGreeting() {
         return ResponseEntity.ok("Greetings from basic protected method!");
