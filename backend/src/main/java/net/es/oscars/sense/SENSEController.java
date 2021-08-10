@@ -4,6 +4,8 @@ import java.time.Instant;
 import java.util.HashMap;
 import java.util.Map;
 
+import com.fasterxml.jackson.core.JsonProcessingException;
+
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.core.Authentication;
@@ -26,7 +28,7 @@ import net.es.oscars.topo.pop.ConsistencyException;
 public class SENSEController {
 
     @Autowired
-    private ResvService resvService;
+    private SENSEService senseService;
 
     @Autowired
     private Startup startup;
@@ -59,6 +61,18 @@ public class SENSEController {
         String username = authentication.getName();
         ret.put("message", "Hello world!");
         ret.put("user", username);
+        ret.put("time", Instant.now().toString());
+
+        return ret;
+    }
+
+    @RequestMapping(value = "/api/sense/model", method = RequestMethod.GET)
+    @ResponseBody
+    @Transactional
+    public Map<String, String> retrieveModel() throws ConsistencyException, StartupException, JsonProcessingException {
+        this.startupCheck();
+        HashMap<String, String> ret = new HashMap<>();
+        ret.put("data", senseService.buildModel());
         ret.put("time", Instant.now().toString());
 
         return ret;
