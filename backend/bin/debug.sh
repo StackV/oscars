@@ -20,6 +20,6 @@ if [ "x$JARFILE" = "x" ]; then
     exit 1
 fi
 
-java -Xmx512m -jar ${JARFILE} $1 $2 $3 $4 $5
-# java -Xmx512m -Xdebug -Xrunjdwp:transport=dt_socket,address=8000,server=y,suspend=y -jar ${JARFILE} $1 $2 $3 $4 $5
+# java -Xmx512m -jar ${JARFILE} $1 $2 $3 $4 $5
+java -Xmx512m -Xdebug -Xrunjdwp:transport=dt_socket,address=8000,server=y,suspend=y -jar ${JARFILE} $1 $2 $3 $4 $5
 reset_tabname

@@ -69,13 +69,13 @@ public class SENSEController {
     @RequestMapping(value = "/api/sense/model", method = RequestMethod.GET)
     @ResponseBody
     @Transactional
-    public Map<String, String> retrieveModel() throws ConsistencyException, StartupException, JsonProcessingException {
+    public String retrieveModel() throws ConsistencyException, StartupException, JsonProcessingException {
         this.startupCheck();
-        HashMap<String, String> ret = new HashMap<>();
-        ret.put("data", senseService.buildModel());
-        ret.put("time", Instant.now().toString());
+        // HashMap<String, String> ret = new HashMap<>();
+        // ret.put("data", senseService.buildModel());
+        // ret.put("time", Instant.now().toString());
 
-        return ret;
+        return senseService.buildModel();
     }
 
     private void startupCheck() throws StartupException {
