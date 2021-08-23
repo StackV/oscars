@@ -23,9 +23,11 @@ import net.es.oscars.app.exc.StartupException;
 import net.es.oscars.nsi.beans.NsiPeering;
 import net.es.oscars.nsi.svc.NsiPopulator;
 import net.es.oscars.nsi.svc.NsiService;
+import net.es.oscars.resv.db.SENSERepository;
 import net.es.oscars.resv.svc.ResvService;
 import net.es.oscars.sense.definitions.Mrs;
 import net.es.oscars.sense.definitions.Nml;
+import net.es.oscars.sense.model.SENSEModel;
 import net.es.oscars.topo.svc.TopoService;
 import net.es.oscars.web.beans.Interval;
 import net.es.oscars.topo.beans.IntRange;
@@ -40,6 +42,9 @@ import net.es.oscars.topo.enums.Layer;
 @Service
 @Data
 public class SENSEService {
+
+    @Autowired
+    private SENSERepository repository;
 
     @Autowired
     private TopoService topoService;
@@ -180,5 +185,18 @@ public class SENSEService {
         ByteArrayOutputStream baos = new ByteArrayOutputStream();
         model.write(baos, "TURTLE");
         return baos.toString();
+    }
+
+    public List<SENSEModel> pilotRetrieve() {
+        return repository.findAll();
+    }
+
+    public void pilotAdd() {
+        SENSEModel mock = new SENSEModel("testUUID", "<urn:test>...", "525kafj2ja");
+        repository.save(mock);
+    }
+
+    public void pilotClear() {
+        repository.deleteAll();
     }
 }

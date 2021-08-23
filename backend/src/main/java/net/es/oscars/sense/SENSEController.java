@@ -2,6 +2,7 @@ package net.es.oscars.sense;
 
 import java.time.Instant;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
@@ -21,6 +22,7 @@ import lombok.extern.slf4j.Slf4j;
 import net.es.oscars.app.Startup;
 import net.es.oscars.app.exc.StartupException;
 import net.es.oscars.resv.svc.ResvService;
+import net.es.oscars.sense.model.SENSEModel;
 import net.es.oscars.topo.pop.ConsistencyException;
 
 @RestController
@@ -76,6 +78,30 @@ public class SENSEController {
         // ret.put("time", Instant.now().toString());
 
         return senseService.buildModel();
+    }
+
+    @RequestMapping(value = "/api/sense/repo", method = RequestMethod.GET)
+    @ResponseBody
+    @Transactional
+    public List<SENSEModel> testRepoGet() throws ConsistencyException, StartupException, JsonProcessingException {
+        this.startupCheck();
+        return senseService.pilotRetrieve();
+    }
+
+    @RequestMapping(value = "/api/sense/repo", method = RequestMethod.PUT)
+    @ResponseBody
+    @Transactional
+    public void testRepoPut() throws ConsistencyException, StartupException, JsonProcessingException {
+        this.startupCheck();
+        senseService.pilotAdd();
+    }
+
+    @RequestMapping(value = "/api/sense/repo", method = RequestMethod.DELETE)
+    @ResponseBody
+    @Transactional
+    public void testRepoDelete() throws ConsistencyException, StartupException, JsonProcessingException {
+        this.startupCheck();
+        senseService.pilotClear();
     }
 
     private void startupCheck() throws StartupException {

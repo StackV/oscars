@@ -144,6 +144,20 @@ CREATE TABLE design (
 
 ALTER TABLE design OWNER TO oscars;
 
+-- PILOT FOR SENSE MODEL
+-- Name: sensemodel; Type: TABLE; Schema: public; Owner: oscars
+--
+
+CREATE TABLE sensemodel (
+    id bigint NOT NULL,
+    uuid character(32),
+    model text,
+    version character(32),
+);
+
+
+ALTER TABLE sensemodel OWNER TO oscars;
+
 --
 -- Name: device; Type: TABLE; Schema: public; Owner: oscars
 --
