@@ -2,6 +2,7 @@ package net.es.oscars.sense;
 
 import java.io.ByteArrayOutputStream;
 import java.time.Instant;
+import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -27,6 +28,7 @@ import net.es.oscars.resv.db.SENSERepository;
 import net.es.oscars.resv.svc.ResvService;
 import net.es.oscars.sense.definitions.Mrs;
 import net.es.oscars.sense.definitions.Nml;
+import net.es.oscars.sense.definitions.Sd;
 import net.es.oscars.sense.model.SENSEModel;
 import net.es.oscars.topo.svc.TopoService;
 import net.es.oscars.web.beans.Interval;
@@ -61,15 +63,7 @@ public class SENSEService {
     @Autowired
     private Startup startup;
 
-    private static String nsBase = "http://schemas.ogf.org/nml/2013/05/base#";
-    private static String nsDefs = "http://schemas.ogf.org/nsi/2013/12/services/definition";
-    private static String nsEth = "http://schemas.ogf.org/nml/2012/10/ethernet";
-    private static String isAliasType = "http://schemas.ogf.org/nml/2013/05/base#isAlias";
-
-    private static String nsDiscovery = "http://schemas.ogf.org/nsi/2014/02/discovery/nsa";
-    private static String nsVcard = "urn:ietf:params:xml:ns:vcard-4.0";
-
-    public String buildModel() throws StartupException, JsonProcessingException {
+    public String buildModel(String topologyURI) throws StartupException, JsonProcessingException {
         if (startup.isInStartup()) {
             throw new StartupException("OSCARS starting up");
         } else if (startup.isInShutdown()) {
@@ -83,15 +77,29 @@ public class SENSEService {
             throw new InternalError("no valid topology version");
         }
         Version v = topoService.getCurrent();
-
-        String topologyURI = "urn:ogf:network:es.net:2013:";
+        DateTimeFormatter dateFormatter = DateTimeFormatter.ISO_INSTANT;
+        Instant now = Instant.now();
 
         OntModel model = ModelFactory.createOntologyModel(OntModelSpec.OWL_MEM_MICRO_RULE_INF);
+        // Manage root topology
         Resource resTopology = RdfOwl.createResource(model, topologyURI, Nml.Topology);
+        model.add(model.createStatement(resTopology, Nml.version, Long.toString(v.getId())));
+        model.add(model.createStatement(resTopology, Nml.name, topologyURI));
+
+        Resource resLifetime = RdfOwl.createResource(model, resTopology.getURI() + ":lifetime", Nml.Lifetime);
+        model.add(model.createStatement(resTopology, Nml.existsDuring, resLifetime));
+        model.add(model.createStatement(resLifetime, Nml.start, dateFormatter.format(now)));
+
+        // Manage switching service
         Resource resSwSvc = RdfOwl.createResource(model, resTopology.getURI() + ":l2switching", Nml.SwitchingService);
         model.add(model.createStatement(resSwSvc, Nml.encoding, RdfOwl.labelTypeVLAN));
         model.add(model.createStatement(resSwSvc, Nml.labelSwapping, "true"));
         model.add(model.createStatement(resTopology, Nml.hasService, resSwSvc));
+
+        Resource resSwSvcDef = RdfOwl.createResource(model, resSwSvc.getURI() + ":sd+l2mpes", Sd.ServiceDefinition);
+        model.add(model.createStatement(resSwSvcDef, Sd.serviceType, Sd.URI_SvcDef_L2MpEs));
+        model.add(model.createStatement(resSwSvc, Sd.hasServiceDefinition, resSwSvcDef));
+        //
 
         Topology topology = topoService.currentTopology();
         List<Port> edgePorts = new ArrayList<>();
@@ -128,12 +136,11 @@ public class SENSEService {
             String nsiUrn = nsiService.nsiUrnFromInternal(edge.getUrn());
 
             // >> Port node
-            System.out.println("== Processing port " + nsiUrn);
             // Port general statements
             Resource resPort = RdfOwl.createResource(model, nsiUrn, Nml.BidirectionalPort);
             model.add(model.createStatement(resPort, Nml.name, edge.getUrn()));
-            model.add(model.createStatement(resPort, Nml.belongsTo, topologyURI));
-            model.add(model.createStatement(resPort, Nml.encoding, "http://schemas.ogf.org/nml/2012/10/ethernet"));
+            model.add(model.createStatement(resPort, Nml.belongsTo, resTopology));
+            model.add(model.createStatement(resPort, Nml.encoding, Nml.labeltype_Ethernet));
             // Add root relationships
             model.add(model.createStatement(resTopology, Nml.hasBidirectionalPort, resPort));
             model.add(model.createStatement(resSwSvc, Nml.hasBidirectionalPort, resPort));
@@ -149,14 +156,14 @@ public class SENSEService {
             }
             String vlans = String.join(",", vlanParts);
 
-            NsiPeering peering = nsiPopulator.getPlusPorts().get(edge.getUrn().replace("/", "_"));
-            if (peering != null) {
-                System.out.println(peering);
-            }
+            // NsiPeering peering =
+            // nsiPopulator.getPlusPorts().get(edge.getUrn().replace("/", "_"));
+            // if (peering != null) {
+            // System.out.println(peering);
+            // }
 
             Resource resVLAN = RdfOwl.createResource(model, nsiUrn + ":vlan", Nml.LabelGroup);
-            model.add(
-                    model.createStatement(resVLAN, Nml.labeltype, "http://schemas.ogf.org/nml/2012/10/ethernet#vlan"));
+            model.add(model.createStatement(resVLAN, Nml.labeltype, Nml.labeltype_Ethernet_Vlan));
             model.add(model.createStatement(resVLAN, Nml.values, vlans));
             // Add relationship
             model.add(model.createStatement(resPort, Nml.hasLabelGroup, resVLAN));
@@ -181,6 +188,8 @@ public class SENSEService {
             // <<
             // break;
         }
+
+        model.add(model.createStatement(resLifetime, Nml.end, dateFormatter.format(Instant.now())));
 
         ByteArrayOutputStream baos = new ByteArrayOutputStream();
         model.write(baos, "TURTLE");

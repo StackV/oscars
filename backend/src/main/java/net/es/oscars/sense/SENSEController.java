@@ -77,7 +77,7 @@ public class SENSEController {
         // ret.put("data", senseService.buildModel());
         // ret.put("time", Instant.now().toString());
 
-        return senseService.buildModel();
+        return senseService.buildModel("urn:ogf:network:es.net:2013");
     }
 
     @RequestMapping(value = "/api/sense/repo", method = RequestMethod.GET)
