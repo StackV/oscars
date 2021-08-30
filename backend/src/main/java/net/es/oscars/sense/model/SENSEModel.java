@@ -1,12 +1,16 @@
 package net.es.oscars.sense.model;
 
-import com.fasterxml.jackson.annotation.JsonCreator;
-import com.fasterxml.jackson.annotation.JsonIgnore;
-import com.fasterxml.jackson.annotation.JsonInclude;
-import com.fasterxml.jackson.annotation.JsonProperty;
-import lombok.*;
+import javax.persistence.Column;
+import javax.persistence.Entity;
+import javax.persistence.Id;
+import javax.persistence.Table;
 
-import javax.persistence.*;
+import com.fasterxml.jackson.annotation.JsonInclude;
+
+import lombok.AllArgsConstructor;
+import lombok.Builder;
+import lombok.Data;
+import lombok.NoArgsConstructor;
 
 @Table(name = "sensemodel")
 @Entity
@@ -15,26 +19,16 @@ import javax.persistence.*;
 @AllArgsConstructor
 @NoArgsConstructor
 public class SENSEModel {
-    @JsonCreator
-    public SENSEModel(@JsonProperty("uuid") @NonNull String uuid, @JsonProperty("model") String model,
-            @JsonProperty("version") String version) {
-        this.uuid = uuid;
-        this.model = model;
-        this.version = version;
-    }
-
     @Id
-    @GeneratedValue
-    @JsonIgnore
-    private Long id;
+    private String id;
 
-    @Column(unique = true)
-    @NonNull
-    private String uuid;
+    @Column(nullable = false)
+    private String creationTime;
 
+    @Column(nullable = false)
     private String model;
 
     @JsonInclude(JsonInclude.Include.NON_NULL)
-    private String version;
+    private String href;
 
 }

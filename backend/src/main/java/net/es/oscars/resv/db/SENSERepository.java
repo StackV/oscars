@@ -13,8 +13,10 @@ public interface SENSERepository extends CrudRepository<SENSEModel, Long> {
 
     List<SENSEModel> findAll();
 
-    Optional<SENSEModel> findByUuid(String uuid);
+    Optional<SENSEModel> findById(String id);
 
-    List<SENSEModel> findByVersion(String version);
+    List<SENSEModel> findByHref(String href);
+
+    List<SENSEModel> findByCreationTime(String creationTime);
 
 }

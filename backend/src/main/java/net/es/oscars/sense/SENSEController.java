@@ -1,11 +1,17 @@
 package net.es.oscars.sense;
 
+import java.io.IOException;
+import java.io.PrintWriter;
 import java.time.Instant;
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
-import com.fasterxml.jackson.core.JsonProcessingException;
+import javax.servlet.http.HttpServletRequest;
+import javax.servlet.http.HttpServletResponse;
+
+import com.fasterxml.jackson.databind.ObjectMapper;
 
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpStatus;
@@ -21,16 +27,18 @@ import org.springframework.web.bind.annotation.RestController;
 import lombok.extern.slf4j.Slf4j;
 import net.es.oscars.app.Startup;
 import net.es.oscars.app.exc.StartupException;
-import net.es.oscars.resv.svc.ResvService;
 import net.es.oscars.sense.model.SENSEModel;
 import net.es.oscars.topo.pop.ConsistencyException;
+import net.es.oscars.topo.svc.TopoService;
 
 @RestController
 @Slf4j
 public class SENSEController {
-
     @Autowired
     private SENSEService senseService;
+
+    @Autowired
+    private TopoService topoService;
 
     @Autowired
     private Startup startup;
@@ -68,22 +76,42 @@ public class SENSEController {
         return ret;
     }
 
-    @RequestMapping(value = "/api/sense/model", method = RequestMethod.GET)
+    @RequestMapping(value = "/api/sense/models", method = RequestMethod.GET)
     @ResponseBody
     @Transactional
-    public String retrieveModel() throws ConsistencyException, StartupException, JsonProcessingException {
+    public void retrieveModel(HttpServletRequest request, HttpServletResponse res)
+            throws ConsistencyException, StartupException, IOException {
         this.startupCheck();
         // HashMap<String, String> ret = new HashMap<>();
         // ret.put("data", senseService.buildModel());
         // ret.put("time", Instant.now().toString());
+        long ifModifiedSince = request.getDateHeader("If-Modified-Since");
+        res.setHeader("Cache-Control", "max-age=3600");
+        long lastModified = topoService.getCurrent().getUpdated().getEpochSecond() * 1000; // I-M-S in milliseconds
 
-        return senseService.buildModel("urn:ogf:network:es.net:2013");
+        // if request did not set the header, we get a -1 in iMS
+        if (ifModifiedSince != -1 && lastModified <= ifModifiedSince) {
+            // log.debug("returning not-modified to browser, ims: "+ifModifiedSince+ " lm:
+            // "+lastModified);
+            res.setStatus(HttpServletResponse.SC_NOT_MODIFIED);
+            return;
+        }
+
+        SENSEModel model = senseService.buildModel();
+        ObjectMapper mapper = new ObjectMapper();
+        List<SENSEModel> ret = new ArrayList<>();
+        ret.add(model);
+
+        res.setContentType("application/json");
+        PrintWriter out = res.getWriter();
+        out.println(mapper.writeValueAsString(ret));
+        out.close();
     }
 
     @RequestMapping(value = "/api/sense/repo", method = RequestMethod.GET)
     @ResponseBody
     @Transactional
-    public List<SENSEModel> testRepoGet() throws ConsistencyException, StartupException, JsonProcessingException {
+    public List<SENSEModel> testRepoGet() throws ConsistencyException, StartupException {
         this.startupCheck();
         return senseService.pilotRetrieve();
     }
@@ -91,7 +119,7 @@ public class SENSEController {
     @RequestMapping(value = "/api/sense/repo", method = RequestMethod.PUT)
     @ResponseBody
     @Transactional
-    public void testRepoPut() throws ConsistencyException, StartupException, JsonProcessingException {
+    public void testRepoPut() throws ConsistencyException, StartupException {
         this.startupCheck();
         senseService.pilotAdd();
     }
@@ -99,7 +127,7 @@ public class SENSEController {
     @RequestMapping(value = "/api/sense/repo", method = RequestMethod.DELETE)
     @ResponseBody
     @Transactional
-    public void testRepoDelete() throws ConsistencyException, StartupException, JsonProcessingException {
+    public void testRepoDelete() throws ConsistencyException, StartupException {
         this.startupCheck();
         senseService.pilotClear();
     }

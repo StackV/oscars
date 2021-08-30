@@ -5,23 +5,19 @@ import java.time.Instant;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Map;
-import java.util.Set;
-
-import com.fasterxml.jackson.core.JsonProcessingException;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import java.util.UUID;
 
 import org.apache.jena.ontology.OntModel;
 import org.apache.jena.ontology.OntModelSpec;
 import org.apache.jena.rdf.model.ModelFactory;
 import org.apache.jena.rdf.model.Resource;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
 import lombok.Data;
 import net.es.oscars.app.Startup;
 import net.es.oscars.app.exc.StartupException;
-import net.es.oscars.nsi.beans.NsiPeering;
 import net.es.oscars.nsi.svc.NsiPopulator;
 import net.es.oscars.nsi.svc.NsiService;
 import net.es.oscars.resv.db.SENSERepository;
@@ -30,20 +26,21 @@ import net.es.oscars.sense.definitions.Mrs;
 import net.es.oscars.sense.definitions.Nml;
 import net.es.oscars.sense.definitions.Sd;
 import net.es.oscars.sense.model.SENSEModel;
-import net.es.oscars.topo.svc.TopoService;
-import net.es.oscars.web.beans.Interval;
 import net.es.oscars.topo.beans.IntRange;
-import net.es.oscars.topo.beans.ReservableCommandParam;
 import net.es.oscars.topo.beans.Topology;
 import net.es.oscars.topo.ent.Device;
-import net.es.oscars.topo.ent.Layer3Ifce;
 import net.es.oscars.topo.ent.Port;
-import net.es.oscars.topo.ent.Version;
 import net.es.oscars.topo.enums.Layer;
+import net.es.oscars.topo.svc.TopoService;
 
 @Service
 @Data
 public class SENSEService {
+    @Value("${nml.topo-id}")
+    private String topoId;
+
+    @Value("${nml.topo-name}")
+    private String topoName;
 
     @Autowired
     private SENSERepository repository;
@@ -63,7 +60,7 @@ public class SENSEService {
     @Autowired
     private Startup startup;
 
-    public String buildModel(String topologyURI) throws StartupException, JsonProcessingException {
+    public SENSEModel buildModel() throws StartupException {
         if (startup.isInStartup()) {
             throw new StartupException("OSCARS starting up");
         } else if (startup.isInShutdown()) {
@@ -76,19 +73,20 @@ public class SENSEService {
         if (topoService.getCurrent() == null) {
             throw new InternalError("no valid topology version");
         }
-        Version v = topoService.getCurrent();
+        // Version v = topoService.getCurrent();
         DateTimeFormatter dateFormatter = DateTimeFormatter.ISO_INSTANT;
         Instant now = Instant.now();
 
         OntModel model = ModelFactory.createOntologyModel(OntModelSpec.OWL_MEM_MICRO_RULE_INF);
         // Manage root topology
-        Resource resTopology = RdfOwl.createResource(model, topologyURI, Nml.Topology);
-        model.add(model.createStatement(resTopology, Nml.version, Long.toString(v.getId())));
-        model.add(model.createStatement(resTopology, Nml.name, topologyURI));
+        Resource resTopology = RdfOwl.createResource(model, topoId, Nml.Topology);
+        model.add(model.createStatement(resTopology, Nml.version, dateFormatter.format(now)));
+        model.add(model.createStatement(resTopology, Nml.name, topoName));
 
         Resource resLifetime = RdfOwl.createResource(model, resTopology.getURI() + ":lifetime", Nml.Lifetime);
         model.add(model.createStatement(resTopology, Nml.existsDuring, resLifetime));
         model.add(model.createStatement(resLifetime, Nml.start, dateFormatter.format(now)));
+        model.add(model.createStatement(resLifetime, Nml.end, dateFormatter.format(now.plusSeconds(21600))));
 
         // Manage switching service
         Resource resSwSvc = RdfOwl.createResource(model, resTopology.getURI() + ":l2switching", Nml.SwitchingService);
@@ -104,19 +102,7 @@ public class SENSEService {
         Topology topology = topoService.currentTopology();
         List<Port> edgePorts = new ArrayList<>();
         for (Device d : topology.getDevices().values()) {
-            // System.out
-            // .println("Iterating over device " + nsiService.nsiUrnFromInternal(d.getUrn())
-            // + " : " + d.getId());
             for (Port p : d.getPorts()) {
-                // System.out.println(
-                // "Iterating over port " + nsiService.nsiUrnFromInternal(p.getUrn()) + " : " +
-                // p.getId());
-                // for (Layer3Ifce i : p.getIfces()) {
-                // System.out.println("Iterating over interface " +
-                // nsiService.nsiUrnFromInternal(i.getUrn()) + " : "
-                // + i.getIpv4Address() + "|" + i.getIpv6Address());
-                // }
-
                 if (p.getCapabilities().contains(Layer.ETHERNET) && !p.getReservableVlans().isEmpty()) {
                     boolean allow = false;
                     for (String filter : nsiPopulator.getFilter()) {
@@ -189,19 +175,19 @@ public class SENSEService {
             // break;
         }
 
-        model.add(model.createStatement(resLifetime, Nml.end, dateFormatter.format(Instant.now())));
-
         ByteArrayOutputStream baos = new ByteArrayOutputStream();
         model.write(baos, "TURTLE");
-        return baos.toString();
+
+        return new SENSEModel(UUID.randomUUID().toString(), baos.toString(), now.toString(), resTopology.getURI());
+
     }
 
     public List<SENSEModel> pilotRetrieve() {
         return repository.findAll();
     }
 
-    public void pilotAdd() {
-        SENSEModel mock = new SENSEModel("testUUID", "<urn:test>...", "525kafj2ja");
+    public void pilotAdd() throws StartupException {
+        SENSEModel mock = buildModel();
         repository.save(mock);
     }
 
