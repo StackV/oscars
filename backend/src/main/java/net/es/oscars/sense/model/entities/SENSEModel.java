@@ -1,4 +1,6 @@
-package net.es.oscars.sense.model;
+package net.es.oscars.sense.model.entities;
+
+import java.io.Serializable;
 
 import javax.persistence.Column;
 import javax.persistence.Entity;
@@ -18,7 +20,7 @@ import lombok.NoArgsConstructor;
 @Builder
 @AllArgsConstructor
 @NoArgsConstructor
-public class SENSEModel {
+public class SENSEModel implements Serializable {
     @Id
     private String id;
 

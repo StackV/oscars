@@ -158,6 +158,19 @@ CREATE TABLE sensemodel (
 
 ALTER TABLE sensemodel OWNER TO oscars;
 
+-- PILOT FOR SENSE MODEL
+-- Name: sensedelta; Type: TABLE; Schema: public; Owner: oscars
+--
+
+CREATE TABLE sensedelta (
+    idx bigint NOT NULL,
+    reduction text,
+    addition text,
+);
+
+
+ALTER TABLE sensemodel OWNER TO oscars;
+
 --
 -- Name: device; Type: TABLE; Schema: public; Owner: oscars
 --
