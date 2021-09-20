@@ -673,7 +673,7 @@ public class NmlController {
 
         Element dPeersWith = doc.createElement("peersWith");
         dPeersWith.setAttribute("role", "PA");
-        dPeersWith.setTextContent("urn:ogf:network:es.net:2013:nsa:nsi-aggr-west");
+        dPeersWith.setTextContent(topoId + "nsa:nsi-aggr-west");
         rootElement.appendChild(dPeersWith);
 
         Transformer transformer = TransformerFactory.newInstance().newTransformer();
