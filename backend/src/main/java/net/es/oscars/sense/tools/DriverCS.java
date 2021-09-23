@@ -51,6 +51,9 @@ import net.es.nsi.lib.soap.gen.nsi_2_0.connection.types.ScheduleType;
 import net.es.nsi.lib.soap.gen.nsi_2_0.services.point2point.ObjectFactory;
 import net.es.nsi.lib.soap.gen.nsi_2_0.services.point2point.P2PServiceBaseType;
 import net.es.nsi.lib.soap.gen.nsi_2_0.services.types.DirectionalityType;
+import net.es.oscars.resv.db.ConnectionRepository;
+import net.es.oscars.resv.ent.Connection;
+import net.es.oscars.resv.enums.Phase;
 import net.es.oscars.sense.db.SENSEDeltaConnectionRepository;
 import net.es.oscars.sense.definitions.Mrs;
 import net.es.oscars.sense.definitions.Nml;
@@ -61,8 +64,6 @@ import net.es.oscars.sense.definitions.SimpleLabel;
 import net.es.oscars.sense.definitions.SimpleStp;
 import net.es.oscars.sense.definitions.db.ConnectionMap;
 import net.es.oscars.sense.definitions.db.ConnectionMapRepository;
-import net.es.oscars.sense.definitions.db.Reservation;
-import net.es.oscars.sense.definitions.db.ReservationService;
 import net.es.oscars.sense.definitions.db.StpMapping;
 import net.es.oscars.sense.definitions.mrml.MrsBandwidthService;
 import net.es.oscars.sense.definitions.mrml.MrsBandwidthType;
@@ -71,6 +72,7 @@ import net.es.oscars.sense.definitions.mrml.NmlLabel;
 import net.es.oscars.sense.definitions.mrml.StpHolder;
 import net.es.oscars.sense.model.DeltaConnection;
 import net.es.oscars.sense.model.entities.SENSEModel;
+import net.es.oscars.web.beans.CurrentlyHeldEntry;
 
 /**
  * A provider implementing MRML delta operations using the NSI Connection
@@ -89,7 +91,7 @@ public class DriverCS {
     private ConnectionMapRepository cmRepo;
 
     @Autowired
-    private ReservationService reservationService;
+    private ConnectionRepository connRepo;
 
     @Value("${nsi.provider-nsa}")
     private String providerNSA;
@@ -171,26 +173,46 @@ public class DriverCS {
 
             log.debug("[processDeltaReduction] SwitchingSubnet: " + ssid);
 
-            // Look up all the reservation segments associated with this SwitchingSubnet.
-            // TODO: We can ignore any in the TERMINATED but due to an OpenNSA bug we let
-            // them try a reduction on a reservation in the TERMINATING state.
-            List<Reservation> reservations = reservationService.getByGlobalReservationId(ssid).stream()
-                    .filter(r -> (LifecycleStateEnumType.TERMINATED != r.getLifecycleState()
-                    /* && LifecycleStateEnumType.TERMINATING != r.getLifecycleState() */)).collect(Collectors.toList());
+            // OSCARS REFACTOR
+            // Original:
+            /*
+             * Look up all the reservation segments associated with this SwitchingSubnet. //
+             * TODO: We can ignore any in the TERMINATED but due to an OpenNSA bug we let //
+             * them try a reduction on a reservation in the TERMINATING state.
+             */
+            // List<Reservation> reservations =
+            // reservationService.getByGlobalReservationId(ssid).stream()
+            // .filter(r -> (LifecycleStateEnumType.TERMINATED != r.getLifecycleState()
+            // /* && LifecycleStateEnumType.TERMINATING != r.getLifecycleState()
+            // */)).collect(Collectors.toList());
+            // //
 
-            // Terminate using the parent connectionId if one exists.
-            for (Reservation reservation : reservations) {
-                if (Strings.isNullOrEmpty(reservation.getParentConnectionId())) {
-                    terminates.add(reservation.getConnectionId());
-                } else {
-                    terminates.add(reservation.getParentConnectionId());
-                }
-            }
+            // // Terminate using the parent connectionId if one exists.
+            // for (Reservation reservation : reservations) {
+            // if (Strings.isNullOrEmpty(reservation.getParentConnectionId())) {
+            // terminates.add(reservation.getConnectionId());
+            // } else {
+            // terminates.add(reservation.getParentConnectionId());
+            // }
+            // }
 
             // terminates.addAll(reservationService.getByGlobalReservationId(ssid).stream()
             // .filter(r -> (LifecycleStateEnumType.TERMINATED != r.getLifecycleState()
             // && LifecycleStateEnumType.TERMINATING != r.getLifecycleState()))
             // .map(Reservation::getConnectionId).collect(Collectors.toList()));
+
+            // New:
+            /**
+             * Look up all held entities in the connRepo
+             */
+            List<Connection> resvs = new ArrayList<>();
+            List<Connection> connections = connRepo.findByPhase(Phase.HELD);
+            for (Connection c : connections) {
+                log.info("[processDeltaReduction] Held connection " + c.getConnectionId());
+
+            }
+
+            //
             log.debug("[processDeltaReduction] done");
         }
 

@@ -97,11 +97,13 @@ public class SENSEController {
 
     @RequestMapping(value = "/api/sense/deltas", method = RequestMethod.POST)
     @Transactional
-    public DeltaModel pushDelta(@RequestBody DeltaRequest deltaRequest, HttpServletRequest req,
-            HttpServletResponse res) {
+    public DeltaModel pushDelta(@RequestBody DeltaRequest deltaRequest, HttpServletRequest req, HttpServletResponse res)
+            throws StartupException {
+        this.startupCheck();
+
         String location = req.getRequestURI();
-        log.info("[SENSEController] POST DELTAS || deltaId = {}, deltaRequest = {}", deltaRequest.getId(),
-                deltaRequest);
+        log.info("[SENSEController] POST DELTAS || deltaId = {}, modelId = {}", deltaRequest.getId(),
+                deltaRequest.getModelId());
 
         // If the requester did not specify a delta id then we need to create one.
         if (Strings.isNullOrEmpty(deltaRequest.getId())) {

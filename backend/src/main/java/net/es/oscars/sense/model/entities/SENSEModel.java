@@ -2,9 +2,12 @@ package net.es.oscars.sense.model.entities;
 
 import java.io.Serializable;
 
+import javax.persistence.Basic;
 import javax.persistence.Column;
 import javax.persistence.Entity;
+import javax.persistence.FetchType;
 import javax.persistence.Id;
+import javax.persistence.Lob;
 import javax.persistence.Table;
 
 import com.fasterxml.jackson.annotation.JsonInclude;
@@ -27,7 +30,8 @@ public class SENSEModel implements Serializable {
     @Column(nullable = false)
     private String creationTime;
 
-    @Column(nullable = false)
+    @Lob
+    @Basic(fetch = FetchType.LAZY, optional = true)
     private String model;
 
     @JsonInclude(JsonInclude.Include.NON_NULL)

@@ -20,6 +20,7 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpStatus;
 import org.springframework.scheduling.annotation.AsyncResult;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 import lombok.Data;
 import lombok.extern.slf4j.Slf4j;
@@ -48,6 +49,7 @@ import net.es.oscars.topo.ent.Port;
 import net.es.oscars.topo.enums.Layer;
 import net.es.oscars.topo.svc.TopoService;
 
+@Transactional
 @Service
 @Data
 @Slf4j
@@ -199,12 +201,14 @@ public class SENSEService {
 
         ByteArrayOutputStream baos = new ByteArrayOutputStream();
         model.write(baos, "TURTLE");
-
-        return new SENSEModel(UUID.randomUUID().toString(), baos.toString(), now.toString(), resTopology.getURI());
+        SENSEModel newModel = new SENSEModel(UUID.randomUUID().toString(), now.toString(), baos.toString(),
+                resTopology.getURI());
+        modelRepository.save(newModel);
+        return newModel;
 
     }
 
-    public Future<Optional<DeltaModel>> propagateDelta(DeltaRequest deltaRequest) {
+    public Future<Optional<DeltaModel>> propagateDelta(DeltaRequest deltaRequest) throws StartupException {
         Optional<DeltaModel> response = Optional.empty();
         log.info("[propagateDelta] processing deltaId = {}", deltaRequest.getId());
 
@@ -212,17 +216,22 @@ public class SENSEService {
         Optional<SENSEModel> referencedModel = modelRepository.findById(deltaRequest.getModelId());
         if (!referencedModel.isPresent()) {
             log.error("[SENSEService] specified model not found, modelId = {}.", deltaRequest.getModelId());
-            return new AsyncResult<>(response);
+            // return new AsyncResult<>(response);
         }
 
         // We need to apply the reduction and addition to the current referenced model.
+        SENSEModel currentModel;
         Optional<SENSEModel> currentModelOpt = modelRepository.findFirstByOrderByCreationTimeDesc();
         if (!currentModelOpt.isPresent()) {
-            log.error("[SENSEService] Could not find current model for networkId = {}", topoId);
-            return new AsyncResult<>(response);
+            currentModel = buildModel();
+            // log.error("[SENSEService] Could not find current model for networkId = {}",
+            // topoId);
+            // return new AsyncResult<>(response);
+        } else {
+            currentModel = currentModelOpt.get();
+            log.info("[propagateDelta] ??? {}", currentModel.getCreationTime());
         }
 
-        SENSEModel currentModel = currentModelOpt.get();
         try {
             // Get the referencedModel on which we apply the changes.
             org.apache.jena.rdf.model.Model rdfModel = ModelUtil.unmarshalModel(currentModel.getModel());
@@ -262,7 +271,7 @@ public class SENSEService {
             try {
                 driverCS.processDelta(referencedModel.get(), delta.getDeltaId(), reduction, addition);
             } catch (Exception ex) {
-                log.error("[SENSEService] NSI CS processing of delta failed,  deltaId = {}", delta.getDeltaId(), ex);
+                log.error("[SENSEService] SENSE CS processing of delta failed,  deltaId = {}", delta.getDeltaId(), ex);
                 delta = deltaRepository.findById(id).get();
                 delta.setState(DeltaState.Failed);
                 deltaRepository.save(delta);
