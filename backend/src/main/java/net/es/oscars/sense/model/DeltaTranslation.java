@@ -5,7 +5,7 @@ import lombok.Data;
 @Data
 public class DeltaTranslation {
     private static final String URN_SEP = ":";
-    private static final String LABEL_SEP = "+";
+    // private static final String LABEL_SEP = "+";
 
     public DeltaTranslation(String topoID, String urn) {
         this.urn = urn;
@@ -19,4 +19,8 @@ public class DeltaTranslation {
     private String urn;
     private String junction;
     private String port;
+
+    public String toLabel() {
+        return junction + URN_SEP + port;
+    }
 }

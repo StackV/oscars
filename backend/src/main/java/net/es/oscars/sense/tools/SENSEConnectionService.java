@@ -22,10 +22,9 @@ package net.es.oscars.sense.tools;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
-import java.util.HashMap;
+import java.util.Arrays;
 import java.util.HashSet;
 import java.util.List;
-import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.TimeoutException;
@@ -44,12 +43,15 @@ import org.springframework.stereotype.Component;
 
 import lombok.extern.slf4j.Slf4j;
 import net.es.nsi.lib.soap.gen.nsi_2_0.connection.ifce.ServiceException;
-import net.es.nsi.lib.soap.gen.nsi_2_0.services.point2point.ObjectFactory;
+import net.es.oscars.app.exc.NsiException;
+import net.es.oscars.nsi.ent.NsiMapping;
+import net.es.oscars.nsi.svc.NsiService;
 import net.es.oscars.resv.db.ConnectionRepository;
 import net.es.oscars.resv.ent.Connection;
 import net.es.oscars.resv.enums.BuildMode;
 import net.es.oscars.resv.enums.ConnectionMode;
 import net.es.oscars.resv.enums.Phase;
+import net.es.oscars.resv.enums.State;
 import net.es.oscars.resv.svc.ConnService;
 import net.es.oscars.sense.db.SENSEDeltaRepository;
 import net.es.oscars.sense.definitions.ExistsDuring;
@@ -63,6 +65,10 @@ import net.es.oscars.sense.model.DeltaConnectionData;
 import net.es.oscars.sense.model.DeltaTranslation;
 import net.es.oscars.sense.model.entities.SENSEDelta;
 import net.es.oscars.sense.model.entities.SENSEModel;
+import net.es.oscars.web.beans.ConnChange;
+import net.es.oscars.web.beans.ConnChangeResult;
+import net.es.oscars.web.beans.ConnectionFilter;
+import net.es.oscars.web.beans.ConnectionList;
 import net.es.oscars.web.simple.Fixture;
 import net.es.oscars.web.simple.Junction;
 import net.es.oscars.web.simple.SimpleConnection;
@@ -82,6 +88,9 @@ public class SENSEConnectionService {
     private ConnService connSvc;
 
     @Autowired
+    private NsiService nsiSvc;
+
+    @Autowired
     private SENSEDeltaRepository deltaRepository;
 
     @Autowired
@@ -96,37 +105,18 @@ public class SENSEConnectionService {
     @Value("${resv.timeout}")
     private Integer resvTimeout;
 
-    final ObjectFactory P2PS_FACTORY = new ObjectFactory();
-    final net.es.nsi.lib.soap.gen.nsi_2_0.connection.types.ObjectFactory CS_FACTORY = new net.es.nsi.lib.soap.gen.nsi_2_0.connection.types.ObjectFactory();
-
-    // @Autowired
-    // private OperationMapRepository operationMap;
-
-    /**
-     * Process delta reduction and addition requests up to the pre-commit state,
-     * storing connection information for commit processing. We are forgiving of
-     * reduction elements not being present, but strict about the creation for
-     * addition elements.
-     *
-     * @param model
-     * @param deltaId
-     * @param reduction
-     * @param addition
-     * @throws Exception A
-     */
     public void processDelta(String username, SENSEModel model, SENSEDelta delta, Optional<Model> reduction,
             Optional<Model> addition) throws Exception {
         String deltaId = delta.getUuid();
         log.debug("[processDelta] start deltaId = {}", deltaId);
 
-        Map<String, Set<SimpleConnection>> ret = new HashMap<>();
-        ArrayList<DeltaConnectionData> commits = null, terminates = null;
+        ArrayList<DeltaConnectionData> commits = null;
+        Set<String> terminates = null;
 
         // We process the reduction first.
         if (reduction.isPresent() && !reduction.get().isEmpty()) {
             log.debug("[processDelta] processing reduction, deltaId = {}", deltaId);
-            // terminates = processDeltaReduction(reduction.get());
-            terminates = null;
+            terminates = processDeltaReduction(model, deltaId, reduction.get());
         }
 
         // Now the addition.
@@ -183,55 +173,96 @@ public class SENSEConnectionService {
             }
             delta.setCommits(commitList.toArray(new String[commitList.size()]));
         }
+        if (terminates != null) {
+            delta.setTerminates(terminates.toArray(new String[terminates.size()]));
+        }
         deltaRepository.save(delta);
 
         log.debug("[processDelta] end deltaId = {}", deltaId);
     }
 
-    /**
-     * Determine the set of NSI connections that must be removed as part of this
-     * delta, leaving the termination operation for the commit.
-     *
-     * @param m
-     * @param deltaId
-     * @param reduction
-     * @return
-     */
-    private Set<String> processDeltaReduction(Model reduction) {
+    private Set<String> processDeltaReduction(SENSEModel m, String deltaId, Model reduction) {
         log.debug("[processDeltaReduction] start");
 
-        log.warn("[processDeltaReduction] TODO: FIGURE OUT REDUCTION MODELING");
-
         // The list of connection ids we will need terminate in the delta commit.
-        Set<String> terminates = new HashSet<>();
+        Set<String> ret = new HashSet<>();
+        // ? Perhaps not necessary.
+        // Get the associated model. Process the reduction.
+        // Model model = ModelUtil.unmarshalModel(m.getModel());
+        // ModelUtil.applyDeltaReduction(model, reduction);
 
         // We model connections as mrs:SwitchingSubnet objects so query the
         // reduction model for all those provided. We will just delete these.
         ResultSet ssSet = ModelUtil.getResourcesOfType(reduction, Mrs.SwitchingSubnet);
+        if (!ssSet.hasNext()) {
+            log.debug("[processDeltaAddition] no SwitchingSubnet found so ignoring addition, deletaId = {}", deltaId);
+            return ret;
+        }
         while (ssSet.hasNext()) {
+            // Iterate through connections.
             QuerySolution querySolution = ssSet.next();
-
-            // Get the SwitchingSubnet resource.
             Resource switchingSubnet = querySolution.get("resource").asResource();
+            log.debug("[processDeltaReduction] SwitchingSubnet: " + switchingSubnet.getURI());
 
-            // The SwitchingSubnet identifier is the global reservation identifier in
-            // associated NSI connections. For now we only support the removal of
-            // a complete SwitchingSubnet, and not individual ports/vlans.
-            String ssid = switchingSubnet.getURI();
+            StmtIterator listProperties = switchingSubnet.listProperties(Nml.hasBidirectionalPort);
+            while (listProperties.hasNext()) {
+                // Gather port model info.
+                Statement hasBidirectionalPort = listProperties.next();
+                Resource biRef = hasBidirectionalPort.getResource();
+                log.debug("[processDeltaReduction] bi member: " + biRef.getURI());
+                Resource biChild = ModelUtil.getResourceOfType(reduction, biRef, Nml.BidirectionalPort);
+                if (biChild == null) {
+                    log.error("[processDeltaReduction] Requested BidirectionalPort does not exist {}", biRef.getURI());
+                    throw new IllegalArgumentException("Requested BidirectionalPort does not exist " + biRef.getURI());
+                }
+                DeltaTranslation portTrans = new DeltaTranslation(topoID, biChild.getURI());
+                log.debug("[processDeltaReduction] translation: " + portTrans.toString());
+                log.debug("[processDeltaReduction] biChild: " + biChild.getURI());
+                //
 
-            log.debug("[processDeltaReduction] SwitchingSubnet: " + ssid);
+                // Grab VLAN label information
+                Statement labelRef = biChild.getProperty(Nml.hasLabel);
+                Resource label = ModelUtil.getResourceOfType(reduction, labelRef.getResource(), Nml.Label);
+                int vlan = -1;
+                if (label.getProperty(Nml.labeltype).getObject().toString()
+                        .contentEquals(Nml.labeltype_Ethernet_Vlan.toString())) {
+                    vlan = Integer.parseInt(label.getProperty(Nml.value).getObject().toString());
+                }
+                //
 
-            List<Connection> resvs = new ArrayList<>();
-            List<Connection> connections = connRepo.findByPhase(Phase.HELD);
-            for (Connection c : connections) {
-                log.info("[processDeltaReduction] Held connection " + c.getConnectionId());
+                // Find the connection that is currently using this port fixture and VLAN.
+                ConnectionFilter filter = ConnectionFilter.builder().phase("RESERVED").state(State.ACTIVE).page(1)
+                        .sizePerPage(1).ports(Arrays.asList(portTrans.toLabel())).vlans(Arrays.asList(vlan)).build();
+                ConnectionList found = connSvc.filter(filter);
+                if (found.getTotalSize() > 0) {
+                    log.debug("[processDeltaReduction] Active connecton found for port {}", portTrans.toLabel());
+                    Connection conn = found.getConnections().get(0);
+
+                    // Dismantle found connection.
+                    try {
+                        Optional<NsiMapping> om = nsiSvc.getMappingForOscarsId(conn.getConnectionId());
+                        if (om.isPresent()) {
+                            nsiSvc.forcedEnd(om.get());
+                        }
+                    } catch (NsiException ex) {
+                        log.error(ex.getMessage(), ex);
+                    }
+                    ConnChangeResult res = connSvc.release(conn);
+                    if (res.getWhat().equals(ConnChange.ARCHIVED)) {
+                        log.debug("[processDeltaReduction] Archiving connection {}", conn.getConnectionId());
+                    }
+                    ret.add(conn.getConnectionId());
+                } else {
+                    // No active connection found.
+                    log.debug("[processDeltaReduction] No active connecton found for port {}", portTrans.toLabel());
+                }
+                //
             }
 
-            //
             log.debug("[processDeltaReduction] done");
         }
 
-        return terminates;
+        return ret;
     }
 
     private ArrayList<DeltaConnectionData> processDeltaAddition(SENSEModel m, String deltaId, Model addition)
@@ -240,13 +271,8 @@ public class SENSEConnectionService {
         log.debug("[processDeltaAddition] start deletaId = {}, modelId = {}", deltaId, m.getId());
 
         ArrayList<DeltaConnectionData> ret = new ArrayList<>();
-        // Get the associated model.
+        // Get the associated model. Process the addition.
         Model model = ModelUtil.unmarshalModel(m.getModel());
-
-        // log.debug("[processDeltaAddition] current model: " + m.getModel());
-
-        // Apply the delta to our reference model so we can search with proposed
-        // changes.
         ModelUtil.applyDeltaAddition(model, addition);
 
         ResultSet ssSet = ModelUtil.getResourcesOfType(addition, Mrs.SwitchingSubnet);
@@ -305,8 +331,6 @@ public class SENSEConnectionService {
             Statement serviceTypeRef = serviceDefinition.getProperty(Sd.serviceType);
             log.debug("[processDeltaAddition] serviceType: " + serviceTypeRef.getString());
 
-            StmtIterator listProperties = switchingSubnet.listProperties(Nml.hasBidirectionalPort);
-
             //
             // >> ITERATE OVER PORTS
             // Create connection scaffold.
@@ -314,6 +338,7 @@ public class SENSEConnectionService {
             connRequest.setDescription("TEST HOLD");
             connRequest.setMode(BuildMode.AUTOMATIC);
 
+            StmtIterator listProperties = switchingSubnet.listProperties(Nml.hasBidirectionalPort);
             while (listProperties.hasNext()) {
                 // Gather port model info.
                 Statement hasBidirectionalPort = listProperties.next();

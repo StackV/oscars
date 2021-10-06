@@ -4,6 +4,9 @@ import java.io.IOException;
 import java.io.PrintWriter;
 import java.security.Principal;
 import java.time.Instant;
+import java.time.LocalDateTime;
+import java.time.ZoneId;
+import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
@@ -15,7 +18,6 @@ import java.util.concurrent.ExecutionException;
 
 import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
-import javax.xml.datatype.DatatypeConfigurationException;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.common.base.Strings;
@@ -44,7 +46,6 @@ import net.es.oscars.sense.model.DeltaStatusResponse;
 import net.es.oscars.sense.model.entities.SENSEDelta;
 import net.es.oscars.sense.model.entities.SENSEModel;
 import net.es.oscars.sense.tools.UrlHelper;
-import net.es.oscars.sense.tools.XmlUtilities;
 import net.es.oscars.topo.pop.ConsistencyException;
 import net.es.oscars.topo.svc.TopoService;
 
@@ -116,6 +117,13 @@ public class SENSEController {
         if (Strings.isNullOrEmpty(deltaRequest.getId())) {
             deltaRequest.setId("urn:uuid:" + UUID.randomUUID().toString());
             log.info("[SenseRmController] assigning delta id = {}", deltaRequest.getId());
+        } else {
+            // If delta exists, return error.
+            // Optional<SENSEDelta> delta = deltaRepo.findByUuid(deltaRequest.getId());
+            // if (delta.isPresent()) {
+            // res.setStatus(HttpServletResponse.SC_BAD_REQUEST);
+            // return null;
+            // }
         }
 
         try {
@@ -132,9 +140,8 @@ public class SENSEController {
             log.info("[SenseRmController] Delta id = {}, lastModified = {}, content-location = {}", delta.getId(),
                     delta.getLastModified(), contentLocation);
 
-            long lastModified = XmlUtilities.xmlGregorianCalendar(delta.getLastModified()).toGregorianCalendar()
-                    .getTimeInMillis();
-
+            long lastModified = LocalDateTime.parse(delta.getLastModified(), DateTimeFormatter.ISO_OFFSET_DATE_TIME)
+                    .atZone(ZoneId.systemDefault()).toEpochSecond() * 1000;
             delta.setHref(contentLocation);
 
             log.info("[SenseRmController] Delta returning id = {}, creationTime = {}", delta.getId(),
@@ -144,7 +151,7 @@ public class SENSEController {
             res.setHeader(HttpHeaders.CONTENT_LOCATION, contentLocation);
             res.setDateHeader(HttpHeaders.LAST_MODIFIED, lastModified);
             return delta;
-        } catch (InterruptedException | ExecutionException | IOException | DatatypeConfigurationException ex) {
+        } catch (InterruptedException | ExecutionException | IOException ex) {
             log.error("pullModel failed", ex);
             // Error error =
             // Error.builder().error(HttpStatus.INTERNAL_SERVER_ERROR.getReasonPhrase())
@@ -157,10 +164,10 @@ public class SENSEController {
 
     @RequestMapping(value = "/api/sense/deltas/{id}/actions/commit", method = RequestMethod.PUT)
     @Transactional
-    public void commitDelta(@PathVariable String id, HttpServletResponse res) throws StartupException {
+    public void commitDelta(@PathVariable String id, HttpServletResponse res) throws StartupException, IOException {
         // ID required.
-        if (Strings.isNullOrEmpty(id)) {
-            res.setStatus(HttpServletResponse.SC_BAD_REQUEST);
+        if (id == null || id.isEmpty()) {
+            res.sendError(HttpServletResponse.SC_BAD_REQUEST);
             return;
         }
 
@@ -169,7 +176,7 @@ public class SENSEController {
             SENSEDelta delta = deltaRepo.findByUuid(id).get();
             senseService.commitDelta(delta);
         } catch (NoSuchElementException ex) {
-            res.setStatus(HttpServletResponse.SC_NOT_FOUND);
+            res.sendError(HttpServletResponse.SC_NOT_FOUND);
             return;
         }
     }

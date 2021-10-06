@@ -1,4 +1,4 @@
-package net.es.oscars.sense.definitions.db;
+package net.es.oscars.sense.definitions;
 
 import java.util.HashSet;
 import java.util.Set;

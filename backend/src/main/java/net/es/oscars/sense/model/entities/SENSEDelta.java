@@ -53,6 +53,7 @@ public class SENSEDelta implements Serializable {
     private String uuid; // The unique uuid identifying the delta within the RM.
 
     @Basic(optional = false)
+    @Builder.Default
     private long lastModified = 0; // Representing the time of the creation, last modification, or _state
                                    // transition of the delta resource.
 

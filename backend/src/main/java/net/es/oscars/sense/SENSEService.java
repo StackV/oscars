@@ -2,6 +2,8 @@ package net.es.oscars.sense;
 
 import java.io.ByteArrayOutputStream;
 import java.time.Instant;
+import java.time.ZoneId;
+import java.time.ZonedDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -46,7 +48,6 @@ import net.es.oscars.sense.model.entities.SENSEDelta;
 import net.es.oscars.sense.model.entities.SENSEModel;
 import net.es.oscars.sense.tools.ModelUtil;
 import net.es.oscars.sense.tools.SENSEConnectionService;
-import net.es.oscars.sense.tools.XmlUtilities;
 import net.es.oscars.topo.beans.IntRange;
 import net.es.oscars.topo.beans.Topology;
 import net.es.oscars.topo.ent.Device;
@@ -308,11 +309,12 @@ public class SENSEService {
             deltaRepo.save(delta);
 
             // Sent back the delta created to the orchestrator.
+            ZonedDateTime modifiedTime = Instant.ofEpochMilli(delta.getLastModified()).atZone(ZoneId.systemDefault());
+
             DeltaModel deltaResponse = new DeltaModel();
             deltaResponse.setId(delta.getUuid());
             deltaResponse.setState(delta.getState());
-            deltaResponse
-                    .setLastModified(XmlUtilities.longToXMLGregorianCalendar(delta.getLastModified()).toXMLFormat());
+            deltaResponse.setLastModified(modifiedTime.format(DateTimeFormatter.ISO_OFFSET_DATE_TIME));
             deltaResponse.setModelId(currentModel.getId());
             deltaResponse.setReduction(delta.getReduction());
             deltaResponse.setAddition(delta.getAddition());
