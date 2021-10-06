@@ -5,7 +5,7 @@
     "input": "SELECT",
     "mandatory": true,
     "multivalue": false,
-    "options": ["ESnet", "SENSE", "Testing", "LHCone"]
+    "options": ["ESnet", "SENSE_Translation", "Testing", "LHCone"]
   },
   {
     "category": "priority",

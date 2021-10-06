@@ -4,6 +4,7 @@ import java.io.ByteArrayOutputStream;
 import java.time.Instant;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -17,7 +18,6 @@ import org.apache.jena.rdf.model.ModelFactory;
 import org.apache.jena.rdf.model.Resource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
-import org.springframework.http.HttpStatus;
 import org.springframework.scheduling.annotation.AsyncResult;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -25,22 +25,27 @@ import org.springframework.transaction.annotation.Transactional;
 import lombok.Data;
 import lombok.extern.slf4j.Slf4j;
 import net.es.oscars.app.Startup;
+import net.es.oscars.app.exc.PCEException;
+import net.es.oscars.app.exc.PSSException;
 import net.es.oscars.app.exc.StartupException;
 import net.es.oscars.nsi.svc.NsiPopulator;
 import net.es.oscars.nsi.svc.NsiService;
+import net.es.oscars.resv.ent.Connection;
+import net.es.oscars.resv.svc.ConnService;
 import net.es.oscars.resv.svc.ResvService;
 import net.es.oscars.sense.db.SENSEDeltaRepository;
 import net.es.oscars.sense.db.SENSEModelRepository;
 import net.es.oscars.sense.definitions.Mrs;
 import net.es.oscars.sense.definitions.Nml;
+import net.es.oscars.sense.definitions.Nsi;
 import net.es.oscars.sense.definitions.Sd;
 import net.es.oscars.sense.model.DeltaModel;
 import net.es.oscars.sense.model.DeltaRequest;
 import net.es.oscars.sense.model.DeltaState;
 import net.es.oscars.sense.model.entities.SENSEDelta;
 import net.es.oscars.sense.model.entities.SENSEModel;
-import net.es.oscars.sense.tools.DriverCS;
 import net.es.oscars.sense.tools.ModelUtil;
+import net.es.oscars.sense.tools.SENSEConnectionService;
 import net.es.oscars.sense.tools.XmlUtilities;
 import net.es.oscars.topo.beans.IntRange;
 import net.es.oscars.topo.beans.Topology;
@@ -48,6 +53,8 @@ import net.es.oscars.topo.ent.Device;
 import net.es.oscars.topo.ent.Port;
 import net.es.oscars.topo.enums.Layer;
 import net.es.oscars.topo.svc.TopoService;
+import net.es.oscars.web.beans.ConnChangeResult;
+import net.es.oscars.web.beans.ConnException;
 
 @Transactional
 @Service
@@ -61,13 +68,16 @@ public class SENSEService {
     private String topoName;
 
     @Autowired
+    private ConnService connSvc;
+
+    @Autowired
     private SENSEModelRepository modelRepository;
 
     @Autowired
-    private SENSEDeltaRepository deltaRepository;
+    private SENSEDeltaRepository deltaRepo;
 
     @Autowired
-    private DriverCS driverCS;
+    private SENSEConnectionService driverCS;
 
     @Autowired
     private TopoService topoService;
@@ -118,9 +128,16 @@ public class SENSEService {
         model.add(model.createStatement(resSwSvc, Nml.labelSwapping, "true"));
         model.add(model.createStatement(resTopology, Nml.hasService, resSwSvc));
 
-        Resource resSwSvcDef = RdfOwl.createResource(model, resSwSvc.getURI() + ":sd+l2mpes", Sd.ServiceDefinition);
-        model.add(model.createStatement(resSwSvcDef, Sd.serviceType, Sd.URI_SvcDef_L2MpEs));
-        model.add(model.createStatement(resSwSvc, Sd.hasServiceDefinition, resSwSvcDef));
+        // Resource resSwSvcDef = RdfOwl.createResource(model, resSwSvc.getURI() +
+        // ":sd+l2mpes", Sd.ServiceDefinition);
+        // model.add(model.createStatement(resSwSvcDef, Sd.serviceType,
+        // Sd.URI_SvcDef_L2MpEs));
+        // model.add(model.createStatement(resSwSvc, Sd.hasServiceDefinition,
+        // resSwSvcDef));
+
+        Resource resSwSvcDefEVTS = RdfOwl.createResource(model, resSwSvc.getURI() + ":sd+evts", Sd.ServiceDefinition);
+        model.add(model.createStatement(resSwSvcDefEVTS, Sd.serviceType, Nsi.NSI_SERVICETYPE_EVTS));
+        model.add(model.createStatement(resSwSvc, Sd.hasServiceDefinition, resSwSvcDefEVTS));
         //
 
         Topology topology = topoService.currentTopology();
@@ -205,10 +222,10 @@ public class SENSEService {
                 resTopology.getURI());
         modelRepository.save(newModel);
         return newModel;
-
     }
 
-    public Future<Optional<DeltaModel>> propagateDelta(DeltaRequest deltaRequest) throws StartupException {
+    public Future<Optional<DeltaModel>> propagateDelta(DeltaRequest deltaRequest, String username)
+            throws StartupException {
         Optional<DeltaModel> response = Optional.empty();
         log.info("[propagateDelta] processing deltaId = {}", deltaRequest.getId());
 
@@ -232,6 +249,11 @@ public class SENSEService {
             log.info("[propagateDelta] ??? {}", currentModel.getCreationTime());
         }
 
+        // Fallback for modeling
+        if (!referencedModel.isPresent()) {
+            referencedModel = currentModelOpt;
+        }
+
         try {
             // Get the referencedModel on which we apply the changes.
             org.apache.jena.rdf.model.Model rdfModel = ModelUtil.unmarshalModel(currentModel.getModel());
@@ -251,47 +273,43 @@ public class SENSEService {
             }
 
             // Create and store a delta object representing this request.
-            SENSEDelta delta = new SENSEDelta();
-            // delta.setDeltaId(UUID.randomUUID().toString());
-            delta.setDeltaId(deltaRequest.getId());
-            delta.setModelId(deltaRequest.getModelId());
-            delta.setLastModified(System.currentTimeMillis());
-            delta.setState(DeltaState.Accepting);
-            delta.setAddition(deltaRequest.getAddition());
-            delta.setReduction(deltaRequest.getReduction());
-            delta.setResult(ModelUtil.marshalModel(rdfModel));
-            long id = deltaRepository.save(delta).getIdx();
 
-            log.info("[SENSEService] stored deltaId = {}", delta.getDeltaId());
+            SENSEDelta delta = SENSEDelta.builder().uuid(deltaRequest.getId()).modelId(deltaRequest.getModelId())
+                    .lastModified(System.currentTimeMillis())._state(DeltaState.Accepting)
+                    .addition(deltaRequest.getAddition()).reduction(deltaRequest.getReduction())
+                    ._result(ModelUtil.marshalModel(rdfModel)).commits(new String[0]).terminates(new String[0]).build();
+            String id = deltaRepo.save(delta).getUuid();
+
+            log.info("[SENSEService] stored deltaId = {}", id);
 
             // Now process the delta which may result in an asynchronous
             // modification to the delta. Keep track of the connectionId
             // so that we can commit connections associated with this
             // delta.
             try {
-                driverCS.processDelta(referencedModel.get(), delta.getDeltaId(), reduction, addition);
+                driverCS.processDelta(username, referencedModel.get(), delta, reduction, addition);
             } catch (Exception ex) {
-                log.error("[SENSEService] SENSE CS processing of delta failed,  deltaId = {}", delta.getDeltaId(), ex);
-                delta = deltaRepository.findById(id).get();
+                log.error("[SENSEService] SENSE CS processing of delta failed,  deltaId = {}", delta.getUuid(), ex);
+                delta = deltaRepo.findByUuid(id).get();
                 delta.setState(DeltaState.Failed);
-                deltaRepository.save(delta);
+                deltaRepo.save(delta);
 
                 return new AsyncResult<>(response);
             }
 
             // Read the delta again then update if needed. The orchestrator should
             // not have a reference yet but just in case.
-            delta = deltaRepository.findById(id).get();
+            delta = deltaRepo.findByUuid(id).get();
             if (delta.getState() == DeltaState.Accepting) {
                 delta.setState(DeltaState.Accepted);
             }
 
             delta.setLastModified(System.currentTimeMillis());
-            deltaRepository.save(delta);
+            deltaRepo.save(delta);
 
             // Sent back the delta created to the orchestrator.
             DeltaModel deltaResponse = new DeltaModel();
-            deltaResponse.setId(delta.getDeltaId());
+            deltaResponse.setId(delta.getUuid());
             deltaResponse.setState(delta.getState());
             deltaResponse
                     .setLastModified(XmlUtilities.longToXMLGregorianCalendar(delta.getLastModified()).toXMLFormat());
@@ -307,16 +325,50 @@ public class SENSEService {
         }
     }
 
-    public List<SENSEModel> pilotRetrieve() {
-        return modelRepository.findAll();
+    public void commitDelta(SENSEDelta delta) throws StartupException {
+        // Retrieve delta and associated connections.
+        List<String> connections = new ArrayList<>();
+        connections.addAll(Arrays.asList(delta.getCommits()));
+        connections.addAll(Arrays.asList(delta.getTerminates()));
+
+        delta.setState(DeltaState.Committing);
+        deltaRepo.save(delta);
+
+        // Iterate over connections and watch for errors.
+        for (String connID : connections) {
+            ConnChangeResult connRes = commitConnection(connID);
+            if (connRes == null) {
+                log.error("[commitDelta] Connection {} commit error. Ending process.", connID);
+
+                delta.setState(DeltaState.Failed);
+                deltaRepo.save(delta);
+                return;
+            } else {
+                log.debug("[commitDelta] Connection {} change result.\n{}", connID, connRes);
+            }
+        }
+
+        delta.setState(DeltaState.Committed);
+        deltaRepo.save(delta);
+
+        buildModel();
     }
 
-    public void pilotAdd() throws StartupException {
-        SENSEModel mock = buildModel();
-        modelRepository.save(mock);
-    }
+    public ConnChangeResult commitConnection(String connID) {
+        try {
+            Connection c = connSvc.findConnection(connID);
+            // if (!c.getUsername().equals(username)) {
+            // c.setUsername(username);
+            // }
 
-    public void pilotClear() {
-        modelRepository.deleteAll();
+            log.info("[commitConnection] Committing connection " + connID);
+            return connSvc.commit(c);
+        } catch (PSSException | PCEException | ConnException ex) {
+            log.info("[commitConnection] Error committing " + connID, ex);
+            return null;
+        } catch (IllegalArgumentException ex) {
+            log.info("[commitConnection] Error committing " + connID, ex);
+            return null;
+        }
     }
 }

@@ -20,15 +20,18 @@
 package net.es.oscars.sense.model.entities;
 
 import java.io.Serializable;
+
 import javax.persistence.Basic;
 import javax.persistence.Entity;
 import javax.persistence.FetchType;
-import javax.persistence.GeneratedValue;
 import javax.persistence.Id;
 import javax.persistence.Lob;
 import javax.persistence.Table;
 
+import org.hibernate.annotations.Type;
+
 import lombok.AllArgsConstructor;
+import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 import net.es.oscars.sense.model.DeltaState;
@@ -41,16 +44,13 @@ import net.es.oscars.sense.model.DeltaState;
 @NoArgsConstructor
 @AllArgsConstructor
 @Data
+@Builder
 @Entity
 @Table(name = "sensedelta")
 public class SENSEDelta implements Serializable {
-
     @Id
-    @GeneratedValue
-    private long idx; // Internal database index.
-
     @Basic(optional = false)
-    private String deltaId; // The unique uuid identifying the delta within the RM.
+    private String uuid; // The unique uuid identifying the delta within the RM.
 
     @Basic(optional = false)
     private long lastModified = 0; // Representing the time of the creation, last modification, or _state
@@ -63,15 +63,22 @@ public class SENSEDelta implements Serializable {
     private DeltaState _state; // The current _state of the delta resource. Will contain one of Accepting,
                                // Accepted, Committing, Committed, Activating, Activated, or Failed.
 
+    private String[] commits;
+
+    private String[] terminates;
+
     @Lob
+    @Type(type = "org.hibernate.type.StringType")
     @Basic(fetch = FetchType.LAZY, optional = true)
     private String reduction; // The delta reduction for topology model resource specified by modelId.
 
     @Lob
+    @Type(type = "org.hibernate.type.StringType")
     @Basic(fetch = FetchType.LAZY, optional = true)
     private String addition; // The delta addition for topology model resource specified by modelId.
 
     @Lob
+    @Type(type = "org.hibernate.type.StringType")
     @Basic(fetch = FetchType.LAZY, optional = true)
     private String _result; // resulting topology model that will be created by this delta resource.
 
