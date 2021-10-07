@@ -226,7 +226,7 @@ public class SENSEService {
     }
 
     public Future<Optional<DeltaModel>> propagateDelta(DeltaRequest deltaRequest, String username)
-            throws StartupException {
+            throws StartupException, Exception {
         Optional<DeltaModel> response = Optional.empty();
         log.info("[propagateDelta] processing deltaId = {}", deltaRequest.getId());
 
@@ -295,7 +295,7 @@ public class SENSEService {
                 delta.setState(DeltaState.Failed);
                 deltaRepo.save(delta);
 
-                return new AsyncResult<>(response);
+                throw ex;
             }
 
             // Read the delta again then update if needed. The orchestrator should
@@ -327,11 +327,15 @@ public class SENSEService {
         }
     }
 
-    public void commitDelta(SENSEDelta delta) throws StartupException {
+    public SENSEDelta commitDelta(SENSEDelta delta) throws StartupException {
         // Retrieve delta and associated connections.
         List<String> connections = new ArrayList<>();
         connections.addAll(Arrays.asList(delta.getCommits()));
         connections.addAll(Arrays.asList(delta.getTerminates()));
+
+        if (connections.size() == 0) {
+            return null;
+        }
 
         delta.setState(DeltaState.Committing);
         deltaRepo.save(delta);
@@ -344,16 +348,16 @@ public class SENSEService {
 
                 delta.setState(DeltaState.Failed);
                 deltaRepo.save(delta);
-                return;
             } else {
                 log.debug("[commitDelta] Connection {} change result.\n{}", connID, connRes);
+
+                delta.setState(DeltaState.Committed);
+                deltaRepo.save(delta);
+
+                buildModel();
             }
         }
-
-        delta.setState(DeltaState.Committed);
-        deltaRepo.save(delta);
-
-        buildModel();
+        return delta;
     }
 
     public ConnChangeResult commitConnection(String connID) {

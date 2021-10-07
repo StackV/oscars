@@ -14,7 +14,6 @@ import java.util.Map;
 import java.util.NoSuchElementException;
 import java.util.Optional;
 import java.util.UUID;
-import java.util.concurrent.ExecutionException;
 
 import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
@@ -42,7 +41,9 @@ import net.es.oscars.app.exc.StartupException;
 import net.es.oscars.sense.db.SENSEDeltaRepository;
 import net.es.oscars.sense.model.DeltaModel;
 import net.es.oscars.sense.model.DeltaRequest;
-import net.es.oscars.sense.model.DeltaStatusResponse;
+import net.es.oscars.sense.model.api.DeltaCommitResponse;
+import net.es.oscars.sense.model.api.DeltaPushResponse;
+import net.es.oscars.sense.model.api.DeltaStatusResponse;
 import net.es.oscars.sense.model.entities.SENSEDelta;
 import net.es.oscars.sense.model.entities.SENSEModel;
 import net.es.oscars.sense.tools.UrlHelper;
@@ -105,8 +106,8 @@ public class SENSEController {
 
     @RequestMapping(value = "/api/sense/deltas", method = RequestMethod.POST)
     @Transactional
-    public DeltaModel pushDelta(@RequestBody DeltaRequest deltaRequest, Principal auth, HttpServletRequest req,
-            HttpServletResponse res) throws StartupException {
+    public DeltaPushResponse pushDelta(@RequestBody DeltaRequest deltaRequest, Principal auth, HttpServletRequest req,
+            HttpServletResponse res, @RequestParam(defaultValue = "true") boolean summary) throws StartupException {
         this.startupCheck();
 
         String location = req.getRequestURL().toString();
@@ -122,7 +123,8 @@ public class SENSEController {
             // Optional<SENSEDelta> delta = deltaRepo.findByUuid(deltaRequest.getId());
             // if (delta.isPresent()) {
             // res.setStatus(HttpServletResponse.SC_BAD_REQUEST);
-            // return null;
+            // return ret.error("Delta " + deltaRequest.getId() + " has already been
+            // pushed.").build();
             // }
         }
 
@@ -131,7 +133,7 @@ public class SENSEController {
             Optional<DeltaModel> response = senseService.propagateDelta(deltaRequest, auth.getName()).get();
             if (response == null || !response.isPresent()) {
                 res.setStatus(HttpServletResponse.SC_INTERNAL_SERVER_ERROR);
-                return null;
+                return new DeltaPushResponse(null, null, "No delta returned from propagate push.");
             }
             DeltaModel delta = response.get();
 
@@ -150,34 +152,32 @@ public class SENSEController {
             // return new ResponseEntity<>(delta, headers, HttpStatus.CREATED);
             res.setHeader(HttpHeaders.CONTENT_LOCATION, contentLocation);
             res.setDateHeader(HttpHeaders.LAST_MODIFIED, lastModified);
-            return delta;
-        } catch (InterruptedException | ExecutionException | IOException ex) {
-            log.error("pullModel failed", ex);
-            // Error error =
-            // Error.builder().error(HttpStatus.INTERNAL_SERVER_ERROR.getReasonPhrase())
-            // .error_description(ex.getMessage()).build();
+            return new DeltaPushResponse(delta.getState(), summary ? null : delta, null);
+        } catch (Exception ex) {
             log.error("[SenseRmController] propagateDelta returning error:\n{}", ex);
             res.setStatus(HttpServletResponse.SC_INTERNAL_SERVER_ERROR);
-            return null;
+            return new DeltaPushResponse(null, null, ex.getMessage());
         }
     }
 
     @RequestMapping(value = "/api/sense/deltas/{id}/actions/commit", method = RequestMethod.PUT)
     @Transactional
-    public void commitDelta(@PathVariable String id, HttpServletResponse res) throws StartupException, IOException {
+    public DeltaCommitResponse commitDelta(@PathVariable String id, HttpServletResponse res,
+            @RequestParam(defaultValue = "true") boolean summary) throws StartupException, IOException {
         // ID required.
         if (id == null || id.isEmpty()) {
             res.sendError(HttpServletResponse.SC_BAD_REQUEST);
-            return;
+            return new DeltaCommitResponse(null, null, "No id specified.");
         }
 
         // Retrieve delta and associated connections.
         try {
             SENSEDelta delta = deltaRepo.findByUuid(id).get();
-            senseService.commitDelta(delta);
+            delta = senseService.commitDelta(delta);
+            return new DeltaCommitResponse(delta.getState(), summary ? null : delta, null);
         } catch (NoSuchElementException ex) {
             res.sendError(HttpServletResponse.SC_NOT_FOUND);
-            return;
+            return new DeltaCommitResponse(null, null, "No delta " + id + " found.");
         }
     }
 
@@ -185,17 +185,17 @@ public class SENSEController {
     public DeltaStatusResponse getDeltaStatus(@PathVariable String id, HttpServletResponse res,
             @RequestParam(defaultValue = "true") boolean summary) {
         // ID required.
-        if (Strings.isNullOrEmpty(id)) {
+        if (id == null || id.isEmpty()) {
             res.setStatus(HttpServletResponse.SC_BAD_REQUEST);
-            return null;
+            return new DeltaStatusResponse(null, null, "No id specified.");
         }
 
         try {
             SENSEDelta delta = deltaRepo.findByUuid(id).get();
-            return DeltaStatusResponse.builder().state(delta.getState().name()).build();
+            return new DeltaStatusResponse(delta.getState().name(), null, null);
         } catch (NoSuchElementException ex) {
             res.setStatus(HttpServletResponse.SC_NOT_FOUND);
-            return null;
+            return new DeltaStatusResponse(null, null, "Delta " + id + " not found.");
         }
     }
 
