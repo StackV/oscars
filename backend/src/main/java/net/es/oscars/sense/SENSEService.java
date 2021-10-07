@@ -10,7 +10,6 @@ import java.util.Arrays;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
-import java.util.concurrent.Future;
 
 import com.google.common.base.Strings;
 
@@ -20,7 +19,6 @@ import org.apache.jena.rdf.model.ModelFactory;
 import org.apache.jena.rdf.model.Resource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
-import org.springframework.scheduling.annotation.AsyncResult;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -225,9 +223,7 @@ public class SENSEService {
         return newModel;
     }
 
-    public Future<Optional<DeltaModel>> propagateDelta(DeltaRequest deltaRequest, String username)
-            throws StartupException, Exception {
-        Optional<DeltaModel> response = Optional.empty();
+    public DeltaModel propagateDelta(DeltaRequest deltaRequest, String username) throws StartupException, Exception {
         log.info("[propagateDelta] processing deltaId = {}", deltaRequest.getId());
 
         // Make sure the referenced referencedModel has not expired.
@@ -321,10 +317,10 @@ public class SENSEService {
             deltaResponse.setAddition(delta.getAddition());
             deltaResponse.setResult(delta.getResult());
 
-            return new AsyncResult<>(Optional.of(deltaResponse));
+            return deltaResponse;
         } catch (Exception ex) {
             log.error("[SenseService] propagateDelta failed for modelId = {}", deltaRequest.getModelId(), ex);
-            return new AsyncResult<>(response);
+            throw ex;
         }
     }
 

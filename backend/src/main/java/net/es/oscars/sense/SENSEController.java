@@ -12,7 +12,6 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.NoSuchElementException;
-import java.util.Optional;
 import java.util.UUID;
 
 import javax.servlet.http.HttpServletRequest;
@@ -130,12 +129,11 @@ public class SENSEController {
 
         try {
             // Propagate the requested delta.
-            Optional<DeltaModel> response = senseService.propagateDelta(deltaRequest, auth.getName()).get();
-            if (response == null || !response.isPresent()) {
+            DeltaModel delta = senseService.propagateDelta(deltaRequest, auth.getName());
+            if (delta == null) {
                 res.setStatus(HttpServletResponse.SC_INTERNAL_SERVER_ERROR);
                 return new DeltaPushResponse(null, null, "No delta returned from propagate push.");
             }
-            DeltaModel delta = response.get();
 
             log.info("[SenseRmController] Delta id = {}, state = {}", delta.getId(), delta.getState());
             String contentLocation = UrlHelper.append(location, delta.getId());
