@@ -127,14 +127,14 @@ public class SENSEConnectionService {
             for (DeltaConnectionData connPack : commits) {
                 SimpleConnection connRequest = connPack.getConn();
                 String connID = connSvc.generateConnectionId();
-                log.debug("[processDeltaAddition] creating conn: {}", connID);
+                log.debug("[processDelta] creating conn: {}", connID);
                 if (connID.length() == 4) {
                     connRequest.setConnectionId(connID);
                     Validity v = connSvc.validate(connRequest, ConnectionMode.NEW);
                     if (!v.isValid()) {
                         connRequest.setValidity(v);
-                        log.info("[processDeltaAddition] Connection {} failed to validate: {} ",
-                                connRequest.getConnectionId(), v.getMessage());
+                        log.info("[processDelta] Connection {} failed to validate: {} ", connRequest.getConnectionId(),
+                                v.getMessage());
                         throw new Exception("Validation error: " + v.getMessage());
                     } else {
                         connRequest.setUsername(username);
@@ -158,7 +158,7 @@ public class SENSEConnectionService {
                             Connection c = connSvc.toNewConnection(connRequest);
                             connRepo.save(c);
                         }
-                        log.debug("[processDeltaAddition] held conn: {}", connID);
+                        log.debug("[processDelta] held conn: {}", connID);
                     }
                 }
             }

@@ -242,6 +242,7 @@ public class SENSEService {
         Optional<SENSEModel> currentModelOpt = modelRepository.findFirstByOrderByCreationTimeDesc();
         if (!currentModelOpt.isPresent()) {
             currentModel = buildModel();
+            currentModelOpt = Optional.of(currentModel);
             // log.error("[SENSEService] Could not find current model for networkId = {}",
             // topoId);
             // return new AsyncResult<>(response);

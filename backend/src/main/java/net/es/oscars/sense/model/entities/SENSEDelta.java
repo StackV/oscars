@@ -28,8 +28,6 @@ import javax.persistence.Id;
 import javax.persistence.Lob;
 import javax.persistence.Table;
 
-import org.hibernate.annotations.Type;
-
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
@@ -69,17 +67,14 @@ public class SENSEDelta implements Serializable {
     private String[] terminates;
 
     @Lob
-    @Type(type = "org.hibernate.type.StringType")
     @Basic(fetch = FetchType.LAZY, optional = true)
     private String reduction; // The delta reduction for topology model resource specified by modelId.
 
     @Lob
-    @Type(type = "org.hibernate.type.StringType")
     @Basic(fetch = FetchType.LAZY, optional = true)
     private String addition; // The delta addition for topology model resource specified by modelId.
 
     @Lob
-    @Type(type = "org.hibernate.type.StringType")
     @Basic(fetch = FetchType.LAZY, optional = true)
     private String _result; // resulting topology model that will be created by this delta resource.
 
