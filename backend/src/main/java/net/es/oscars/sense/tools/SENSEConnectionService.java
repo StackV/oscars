@@ -23,13 +23,18 @@ import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.TimeoutException;
 
 import javax.xml.datatype.DatatypeConfigurationException;
+
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.ObjectMapper;
 
 import org.apache.jena.query.QuerySolution;
 import org.apache.jena.query.ResultSet;
@@ -72,6 +77,7 @@ import net.es.oscars.web.beans.ConnectionList;
 import net.es.oscars.web.simple.Fixture;
 import net.es.oscars.web.simple.Junction;
 import net.es.oscars.web.simple.SimpleConnection;
+import net.es.oscars.web.simple.SimpleTag;
 import net.es.oscars.web.simple.Validity;
 
 /**
@@ -426,6 +432,21 @@ public class SENSEConnectionService {
             // r.setDescription("deltaId+" + deltaId + ":uuid+" +
             // UUID.randomUUID().toString());
             // r.setCriteria(rrc);
+            //
+
+            // Add tags to connection request.
+            List<SimpleTag> tagList = new ArrayList<>();
+            pack.getTranslations().forEach((k, v) -> {
+                Map<String, String> transMap = new HashMap<>();
+                transMap.put("sense", k);
+                transMap.put("oscars", v.getJunction() + ":" + v.getPort());
+                try {
+                    tagList.add(SimpleTag.builder().category("SENSE_TRANSLATION")
+                            .contents(new ObjectMapper().writeValueAsString(transMap)).build());
+                } catch (JsonProcessingException e) {
+                }
+            });
+            connRequest.setTags(tagList);
             //
 
             connRequest.setBegin(Math.toIntExact(lifetimeDuring.getStart().getEpochSecond()));

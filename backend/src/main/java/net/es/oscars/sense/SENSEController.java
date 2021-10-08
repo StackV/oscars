@@ -40,6 +40,7 @@ import net.es.oscars.app.exc.StartupException;
 import net.es.oscars.sense.db.SENSEDeltaRepository;
 import net.es.oscars.sense.model.DeltaModel;
 import net.es.oscars.sense.model.DeltaRequest;
+import net.es.oscars.sense.model.DeltaState;
 import net.es.oscars.sense.model.api.DeltaCommitResponse;
 import net.es.oscars.sense.model.api.DeltaPushResponse;
 import net.es.oscars.sense.model.api.DeltaStatusResponse;
@@ -161,20 +162,26 @@ public class SENSEController {
     @RequestMapping(value = "/api/sense/deltas/{id}/actions/commit", method = RequestMethod.PUT)
     @Transactional
     public DeltaCommitResponse commitDelta(@PathVariable String id, HttpServletResponse res,
-            @RequestParam(defaultValue = "true") boolean summary) throws StartupException, IOException {
+            @RequestParam(defaultValue = "true") boolean summary) throws StartupException {
         // ID required.
         if (id == null || id.isEmpty()) {
-            res.sendError(HttpServletResponse.SC_BAD_REQUEST);
+            res.setStatus(HttpServletResponse.SC_BAD_REQUEST);
             return new DeltaCommitResponse(null, null, "No id specified.");
         }
 
         // Retrieve delta and associated connections.
         try {
             SENSEDelta delta = deltaRepo.findByUuid(id).get();
+            if (!delta.getState().equals(DeltaState.Accepted)) {
+                res.setStatus(HttpServletResponse.SC_NOT_ACCEPTABLE);
+                return new DeltaCommitResponse(null, null,
+                        "Delta " + id + " not in ACCEPTED state. Is instead " + delta.getState());
+            }
             delta = senseService.commitDelta(delta);
+
             return new DeltaCommitResponse(delta.getState(), summary ? null : delta, null);
         } catch (NoSuchElementException ex) {
-            res.sendError(HttpServletResponse.SC_NOT_FOUND);
+            res.setStatus(HttpServletResponse.SC_NOT_FOUND);
             return new DeltaCommitResponse(null, null, "No delta " + id + " found.");
         }
     }
