@@ -186,6 +186,27 @@ public class SENSEController {
         }
     }
 
+    @RequestMapping(value = "/api/sense/deltas/{id}/actions/release", method = RequestMethod.PUT)
+    @Transactional
+    public DeltaCommitResponse releaseDelta(@PathVariable String id, HttpServletResponse res) throws StartupException {
+        // ID required.
+        if (id == null || id.isEmpty()) {
+            res.setStatus(HttpServletResponse.SC_BAD_REQUEST);
+            return new DeltaCommitResponse(null, null, "No id specified.");
+        }
+
+        // Retrieve delta and associated connections.
+        try {
+            SENSEDelta delta = deltaRepo.findByUuid(id).get();
+            senseService.releaseDelta(delta);
+
+            return null;
+        } catch (NoSuchElementException ex) {
+            res.setStatus(HttpServletResponse.SC_NOT_FOUND);
+            return new DeltaCommitResponse(null, null, "No delta " + id + " found.");
+        }
+    }
+
     @RequestMapping(value = "/api/sense/deltas/{id}", method = RequestMethod.GET)
     public DeltaStatusResponse getDeltaStatus(@PathVariable String id, HttpServletResponse res,
             @RequestParam(defaultValue = "true") boolean summary) {

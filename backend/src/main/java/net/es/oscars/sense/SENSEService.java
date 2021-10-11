@@ -357,7 +357,27 @@ public class SENSEService {
         return delta;
     }
 
-    public ConnChangeResult commitConnection(String connID) {
+    public void releaseDelta(SENSEDelta delta) throws StartupException {
+        // Retrieve delta and associated connections.
+        List<String> connections = new ArrayList<>();
+        connections.addAll(Arrays.asList(delta.getCommits()));
+        connections.addAll(Arrays.asList(delta.getTerminates()));
+
+        if (connections.size() > 0) {
+            // Iterate over connections and watch for errors.
+            for (String connID : connections) {
+                Connection c = connSvc.findConnection(connID);
+                connSvc.release(c);
+            }
+        }
+
+        deltaRepo.delete(delta);
+
+        buildModel();
+        return;
+    }
+
+    private ConnChangeResult commitConnection(String connID) {
         try {
             Connection c = connSvc.findConnection(connID);
             // if (!c.getUsername().equals(username)) {
