@@ -52,6 +52,7 @@ import net.es.oscars.topo.svc.TopoService;
 
 @RestController
 @Slf4j
+// @PreAuthorize("hasAuthority('SENSE_CLIENT')")
 public class SENSEController {
     @Autowired
     private SENSEService senseService;
