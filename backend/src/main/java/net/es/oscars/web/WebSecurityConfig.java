@@ -72,16 +72,27 @@ public class WebSecurityConfig extends WebSecurityConfigurerAdapter {
 
         http
                 // no need for CSRF or sessions
-                .csrf().disable().sessionManagement().sessionCreationPolicy(SessionCreationPolicy.STATELESS).and()
-                .authorizeRequests().antMatchers("/login").permitAll().antMatchers("/error").permitAll()
+                .csrf().disable()
+                //
+                .sessionManagement().sessionCreationPolicy(SessionCreationPolicy.STATELESS).and()
+
+                .authorizeRequests()
+                //
+                .antMatchers("/login").permitAll()
+                //
+                .antMatchers("/error").permitAll()
+
                 // allow everyone to public API
                 .antMatchers("/api/**").permitAll()
+
                 // allow everyone to web services (for now..)
                 .antMatchers("/services/**").permitAll()
                 // allow everyone to pages
                 .antMatchers("/pages/**").permitAll()
+
                 // only allow authenticated users to get /protected pages or API endpoints
                 .antMatchers("/protected/**").authenticated()
+
                 // only allow admins to anything under /admin
                 .antMatchers("/admin/**").hasAuthority("ADMIN").anyRequest().authenticated().and()
                 .addFilterBefore(authenticationTokenFilterBean(), UsernamePasswordAuthenticationFilter.class);

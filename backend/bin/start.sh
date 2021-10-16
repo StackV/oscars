@@ -3,14 +3,14 @@ function reset_tabname {
     printf '\e]0;\a'
 }
 function tabname {
-    echo -n -e "\033]0;$1\007"
+  echo -n -e "\033]0;$1\007"
 }
 tabname "oscars backend"
 
 # Find the OSCARS backend.jar file
 JARFILE=""
 # Artifact location in target directory, for running in-tree
-LOCALJAR=$(echo target/backend-*-exec.jar)
+LOCALJAR=`echo target/backend-*-exec.jar`
 if [ -e $LOCALJAR ]; then
     JARFILE=$LOCALJAR
 fi
@@ -21,5 +21,4 @@ if [ "x$JARFILE" = "x" ]; then
 fi
 
 java -Xmx512m -jar ${JARFILE} $1 $2 $3 $4 $5
-# java -Xmx512m -Xdebug -Xrunjdwp:transport=dt_socket,address=8000,server=y,suspend=y -jar ${JARFILE} $1 $2 $3 $4 $5
 reset_tabname

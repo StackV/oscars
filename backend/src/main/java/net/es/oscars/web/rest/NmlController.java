@@ -55,6 +55,7 @@ public class NmlController {
     @Value("${nml.base-url}")
     private String baseUrl;
 
+
     @Value("${nsi.provider-nsa}")
     private String providerNsa;
 
@@ -104,6 +105,7 @@ public class NmlController {
         log.warn("Still in startup");
     }
 
+
     @GetMapping(value = "/api/topo/nml")
     public void getTopologyXml(HttpServletRequest request, HttpServletResponse res) throws Exception {
 
@@ -129,12 +131,12 @@ public class NmlController {
 
         // if request did not set the header, we get a -1 in iMS
         if (ifModifiedSince != -1 && lastModified <= ifModifiedSince) {
-            // log.debug("returning not-modified to browser, ims: "+ifModifiedSince+ " lm:
-            // "+lastModified);
+            // log.debug("returning not-modified to browser,  ims: "+ifModifiedSince+ " lm: "+lastModified);
             res.setStatus(HttpServletResponse.SC_NOT_MODIFIED);
             return;
         }
         res.setDateHeader("Last-Modified", lastModified);
+
 
         Topology topology = topoService.currentTopology();
         List<Port> edgePorts = new ArrayList<>();
@@ -172,6 +174,7 @@ public class NmlController {
         endC.setTimeInMillis(topoExpiration.toEpochMilli());
         XMLGregorianCalendar endX = DatatypeFactory.newInstance().newXMLGregorianCalendar(endC);
 
+
         DocumentBuilderFactory docFactory = DocumentBuilderFactory.newInstance();
         docFactory.setNamespaceAware(true);
 
@@ -183,6 +186,7 @@ public class NmlController {
         rootElement.setAttribute("xmlns:nml-base", nsBase);
         rootElement.setAttribute("xmlns:nml-eth", nsEth);
         rootElement.setAttribute("xmlns:nsi-defs", nsDefs);
+
 
         rootElement.setAttribute("version", dateFormatter.format(now));
         rootElement.setAttribute("id", topoId);
@@ -243,6 +247,7 @@ public class NmlController {
                 log.error("device not found for peering: " + peering.getIn());
             }
 
+
             Element bdpgi = doc.createElementNS(nsBase, "nml-base:PortGroup");
             bdp.appendChild(bdpgi);
             bdpgi.setAttribute("id", inUrn);
@@ -251,6 +256,7 @@ public class NmlController {
             bdpgo.setAttribute("id", outUrn);
             bdp.appendChild(bdpgo);
         }
+
 
         Element serviceDefinition = doc.createElementNS(nsDefs, "nsi-defs:serviceDefinition");
         serviceDefinition.setAttribute("id", prefix + "ServiceDefinition:EVTS.A-GOLE");
@@ -278,6 +284,7 @@ public class NmlController {
         ssORel.setAttribute("type", "http://schemas.ogf.org/nml/2013/05/base#hasOutboundPort");
         sSvc.appendChild(ssORel);
 
+
         Element ssSd = doc.createElementNS(nsDefs, "nsi-defs:serviceDefinition");
         ssSd.setAttribute("id", prefix + "ServiceDefinition:EVTS.A-GOLE");
         sSvc.appendChild(ssSd);
@@ -295,6 +302,7 @@ public class NmlController {
             ssORel.appendChild(pgso);
             addedToOut.add(nsiUrn + ":out");
         }
+
 
         Element hip = doc.createElementNS(nsBase, "nml-base:Relation");
         hip.setAttribute("type", "http://schemas.ogf.org/nml/2013/05/base#hasInboundPort");
@@ -315,14 +323,16 @@ public class NmlController {
             String vlans = String.join(",", parts);
             String nsiUrn = nsiService.nsiUrnFromInternal(p.getUrn());
 
+
             Element pgi = doc.createElementNS(nsBase, "nml-base:PortGroup");
             pgi.setAttribute("id", nsiUrn + ":in");
             pgi.setAttribute("encoding", "http://schemas.ogf.org/nml/2012/10/ethernet");
             hip.appendChild(pgi);
 
             String peeringUrn = p.getUrn().replace("/", "_");
-            // log.info("checking peering urn "+peeringUrn);
+            //log.info("checking peering urn "+peeringUrn);
             NsiPeering peering = nsiPopulator.getPlusPorts().get(peeringUrn);
+
 
             Element ilg = doc.createElementNS(nsBase, "nml-base:LabelGroup");
             ilg.setAttribute("labeltype", "http://schemas.ogf.org/nml/2012/10/ethernet#vlan");
@@ -355,6 +365,7 @@ public class NmlController {
             pgi.appendChild(imnrc);
             pgi.appendChild(icap);
             pgi.appendChild(igrn);
+
 
             Element pgo = doc.createElementNS(nsBase, "nml-base:PortGroup");
             pgo.setAttribute("id", nsiUrn + ":out");
@@ -429,6 +440,7 @@ public class NmlController {
             pgi.appendChild(icap);
             pgi.appendChild(igrn);
 
+
             Element pgo = doc.createElementNS(nsBase, "nml-base:PortGroup");
             pgo.setAttribute("id", outUrn);
             pgo.setAttribute("encoding", "http://schemas.ogf.org/nml/2012/10/ethernet");
@@ -482,6 +494,7 @@ public class NmlController {
 
         String xmlString = result.getWriter().toString();
 
+
         res.setContentType("application/xml");
 
         PrintWriter out = res.getWriter();
@@ -497,10 +510,13 @@ public class NmlController {
             throw new StartupException("OSCARS shutting down");
         }
 
+
         DateTimeFormatter dateFormatter = DateTimeFormatter.ISO_INSTANT;
         String pattern = "yyyyMMdd'T'hhmmssZZ";
 
-        DateTimeFormatter formatForVcard = DateTimeFormatter.ofPattern(pattern).withZone(ZoneOffset.systemDefault());
+        DateTimeFormatter formatForVcard = DateTimeFormatter
+                .ofPattern(pattern)
+                .withZone(ZoneOffset.systemDefault());
 
         if (topoService.getCurrent() == null) {
             throw new InternalError("no valid topology version");
@@ -518,6 +534,7 @@ public class NmlController {
             res.setStatus(HttpServletResponse.SC_NOT_MODIFIED);
             return;
         }
+
 
         String[] locParts = nsaLocation.split(",");
         String latitude = locParts[0];
@@ -549,6 +566,7 @@ public class NmlController {
         DocumentBuilderFactory docFactory = DocumentBuilderFactory.newInstance();
         docFactory.setNamespaceAware(true);
 
+
         DocumentBuilder docBuilder = docFactory.newDocumentBuilder();
 
         Document doc = docBuilder.newDocument();
@@ -561,6 +579,7 @@ public class NmlController {
         rootElement.setAttribute("xmlns:disc", nsDiscovery);
         rootElement.setAttribute("xmlns:vc", nsVcard);
         doc.appendChild(rootElement);
+
 
         Element dName = doc.createElement("name");
         dName.setTextContent(nsaName);
@@ -599,6 +618,7 @@ public class NmlController {
         vTimestamp.setTextContent(vCardTimestamp);
         vRev.appendChild(vTimestamp);
         vVcard.appendChild(vRev);
+
 
         Element vKind = doc.createElementNS(nsVcard, "vc:kind");
         Element vKindText = doc.createElementNS(nsVcard, "vc:text");
@@ -639,6 +659,7 @@ public class NmlController {
         dLocation.appendChild(dLatitude);
         rootElement.appendChild(dLocation);
 
+
         Element dNetworkId = doc.createElement("networkId");
         dNetworkId.setTextContent(topoId);
         rootElement.appendChild(dNetworkId);
@@ -673,8 +694,9 @@ public class NmlController {
 
         Element dPeersWith = doc.createElement("peersWith");
         dPeersWith.setAttribute("role", "PA");
-        dPeersWith.setTextContent(topoId + "nsa:nsi-aggr-west");
+        dPeersWith.setTextContent("urn:ogf:network:es.net:2013:nsa:nsi-aggr-west");
         rootElement.appendChild(dPeersWith);
+
 
         Transformer transformer = TransformerFactory.newInstance().newTransformer();
         transformer.setOutputProperty(OutputKeys.INDENT, "yes");
@@ -685,6 +707,7 @@ public class NmlController {
         transformer.transform(source, result);
 
         String xmlString = result.getWriter().toString();
+
 
         PrintWriter out = res.getWriter();
         res.setContentType("application/xml");
