@@ -20,7 +20,7 @@
  * FROM, OUT OF OR IN CONNECTION WITH THE WORK OR THE USE OR OTHER DEALINGS  
  * IN THE WORK.
  */
-package net.es.oscars.sense;
+package net.es.oscars.sense.tools;
 
 import org.apache.jena.ontology.OntModel;
 import org.apache.jena.rdf.model.Model;

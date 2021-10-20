@@ -10,7 +10,11 @@ import java.util.Arrays;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.stream.Collectors;
 
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.common.base.Strings;
 
 import org.apache.jena.ontology.OntModel;
@@ -31,6 +35,9 @@ import net.es.oscars.app.exc.StartupException;
 import net.es.oscars.nsi.svc.NsiPopulator;
 import net.es.oscars.nsi.svc.NsiService;
 import net.es.oscars.resv.ent.Connection;
+import net.es.oscars.resv.ent.Tag;
+import net.es.oscars.resv.ent.VlanFixture;
+import net.es.oscars.resv.enums.State;
 import net.es.oscars.resv.svc.ConnService;
 import net.es.oscars.resv.svc.ResvService;
 import net.es.oscars.sense.db.SENSEDeltaRepository;
@@ -45,6 +52,7 @@ import net.es.oscars.sense.model.DeltaState;
 import net.es.oscars.sense.model.entities.SENSEDelta;
 import net.es.oscars.sense.model.entities.SENSEModel;
 import net.es.oscars.sense.tools.ModelUtil;
+import net.es.oscars.sense.tools.RdfOwl;
 import net.es.oscars.sense.tools.SENSEConnectionService;
 import net.es.oscars.topo.beans.IntRange;
 import net.es.oscars.topo.beans.Topology;
@@ -54,6 +62,8 @@ import net.es.oscars.topo.enums.Layer;
 import net.es.oscars.topo.svc.TopoService;
 import net.es.oscars.web.beans.ConnChangeResult;
 import net.es.oscars.web.beans.ConnException;
+import net.es.oscars.web.beans.ConnectionFilter;
+import net.es.oscars.web.beans.ConnectionList;
 
 @Transactional
 @Service
@@ -92,6 +102,8 @@ public class SENSEService {
 
     @Autowired
     private Startup startup;
+
+    private ObjectMapper mapper = new ObjectMapper();
 
     public SENSEModel buildModel() throws StartupException {
         if (startup.isInStartup()) {
@@ -211,15 +223,158 @@ public class SENSEService {
             // Add relationship
             model.add(model.createStatement(resPort, Nml.hasService, resBandwidth));
             model.add(model.createStatement(resBandwidth, Nml.belongsTo, resPort));
-            // <<
-            // break;
+        }
+
+        ConnectionFilter filter = ConnectionFilter.builder().phase("RESERVED").state(State.ACTIVE).page(1)
+                .sizePerPage(-1).build();
+        ConnectionList found = connSvc.filter(filter);
+        for (Connection conn : found.getConnections()) {
+            // For each connection, create switching subnet, and bidirectional ports.
+            Optional<Tag> connTagID = conn.getTags().stream()
+                    .filter(tag -> tag.getCategory().equals("SENSE_CONNECTION_ID")).findFirst();
+            Optional<Tag> connTagLifetime = conn.getTags().stream()
+                    .filter(tag -> tag.getCategory().equals("SENSE_CONNECTION_LIFETIME")).findFirst();
+            List<Tag> connTrans = conn.getTags().stream().filter(tag -> tag.getCategory().equals("SENSE_TRANSLATION"))
+                    .collect(Collectors.toList());
+
+            try {
+                if (connTagID.isPresent()) {
+                    // Connection was done by SENSE, use augmented sense workflow and URNs.
+                    Resource resConnSubnet = RdfOwl.createResource(model, connTagID.get().getContents(),
+                            Mrs.SwitchingSubnet);
+
+                    model.add(model.createStatement(resConnSubnet, Nml.belongsTo, resSwSvc));
+                    model.add(model.createStatement(resConnSubnet, Nml.encoding, Nml.labeltype_Ethernet));
+                    model.add(model.createStatement(resConnSubnet, Nml.labelSwapping, "true"));
+                    model.add(model.createStatement(resConnSubnet, Nml.labeltype, Nml.labeltype_Ethernet_Vlan));
+
+                    Resource resConnLifetime;
+                    if (connTagLifetime.isPresent()) {
+                        // Sometimes lifetime does not get set right. TODO: investigate
+                        JsonNode lifetimeMap = mapper.readTree(connTagLifetime.get().getContents());
+                        resConnLifetime = RdfOwl.createResource(model, lifetimeMap.get("urn").asText(), Nml.Lifetime);
+                        model.add(model.createStatement(resConnLifetime, Nml.start, lifetimeMap.get("start").asText()));
+                        model.add(model.createStatement(resConnLifetime, Nml.end, lifetimeMap.get("end").asText()));
+                    } else {
+                        resConnLifetime = RdfOwl.createResource(model, resConnSubnet.getURI() + ":existsDuring",
+                                Nml.Lifetime);
+                    }
+                    model.add(model.createStatement(resConnSubnet, Nml.existsDuring, resConnLifetime));
+
+                    for (VlanFixture fix : conn.getReserved().getCmp().getFixtures()) {
+                        // For each fixture, use processed tag as a shortcut to URN generation.
+                        for (Tag tag : connTrans) {
+                            // Look over each tag to find matching translation.
+                            JsonNode tagMap = mapper.readTree(tag.getContents());
+                            if (tagMap.get("oscars").asText().equals(fix.getPortUrn())) {
+                                // Found the tag for this fixture.
+                                // Fixture model build: Resource, vlan label, bw service, during.
+
+                                // :: Resource
+                                Resource resPort = RdfOwl.createResource(model, tagMap.get("port").asText(),
+                                        Nml.BidirectionalPort);
+                                model.add(model.createStatement(resPort, Nml.belongsTo, resConnSubnet));
+                                model.add(model.createStatement(resConnSubnet, Nml.encoding, Nml.labeltype_Ethernet));
+                                model.add(model.createStatement(resPort, Nml.existsDuring, resConnLifetime));
+
+                                String nsiUrn = nsiService.nsiUrnFromInternal(fix.getPortUrn());
+                                model.add(model.createStatement(resPort, Nml.belongsTo, model.getResource(nsiUrn)));
+                                // :: VLAN Label
+                                String vlan = fix.getVlan().getVlanId().toString();
+                                Resource resPortLabel = RdfOwl.createResource(model, tagMap.get("vlan").asText(),
+                                        Nml.Label);
+                                model.add(model.createStatement(resPortLabel, Nml.labeltype,
+                                        Nml.labeltype_Ethernet_Vlan));
+                                model.add(model.createStatement(resPortLabel, Nml.value, vlan));
+
+                                model.add(model.createStatement(resPortLabel, Nml.belongsTo, resPort));
+                                model.add(model.createStatement(resPort, Nml.hasLabel, resPortLabel));
+                                model.add(model.createStatement(resPortLabel, Nml.existsDuring, resConnLifetime));
+                                // :: BW Service
+                                String bw = fix.getEgressBandwidth().toString();
+                                Resource resPortBW = RdfOwl.createResource(model, tagMap.get("bw").asText(),
+                                        Mrs.BandwidthService);
+                                model.add(model.createStatement(resPortBW, Mrs.availableCapacity, bw));
+                                model.add(model.createStatement(resPortBW, Mrs.type, "guaranteedCapped"));
+                                model.add(model.createStatement(resPortBW, Mrs.unit, "mbps"));
+
+                                model.add(model.createStatement(resPortBW, Nml.belongsTo, resPort));
+                                model.add(model.createStatement(resPort, Nml.hasService, resPortBW));
+                                model.add(model.createStatement(resPortBW, Nml.existsDuring, resConnLifetime));
+                                //
+
+                                // Final relationship.
+                                model.add(model.createStatement(resConnSubnet, Nml.hasBidirectionalPort, resPort));
+                                model.add(model.createStatement(resSwSvc, Mrs.providesSubnet, resConnSubnet));
+                            }
+
+                        }
+                    }
+                } else {
+                    // Connection was done by OSCARS, use generic naming convention.
+                    Resource resConnSubnet = RdfOwl.createResource(model,
+                            resSwSvc.getURI() + ":OSCARS:conn+" + conn.getConnectionId(), Mrs.SwitchingSubnet);
+
+                    model.add(model.createStatement(resConnSubnet, Nml.belongsTo, resSwSvc));
+                    model.add(model.createStatement(resConnSubnet, Nml.encoding, Nml.labeltype_Ethernet));
+                    model.add(model.createStatement(resConnSubnet, Nml.labelSwapping, "true"));
+                    model.add(model.createStatement(resConnSubnet, Nml.labeltype, Nml.labeltype_Ethernet_Vlan));
+
+                    Resource resConnLifetime = RdfOwl.createResource(model, resConnSubnet.getURI() + ":existsDuring",
+                            Nml.Lifetime);
+                    model.add(model.createStatement(resConnSubnet, Nml.existsDuring, resConnLifetime));
+
+                    for (VlanFixture fix : conn.getReserved().getCmp().getFixtures()) {
+                        String vlan = fix.getVlan().getVlanId().toString();
+                        String portURN = resConnSubnet.getURI() + ":" + fix.getPortUrn().replace("/", "_")
+                                + ":+:vlanport+" + vlan;
+                        // Fixture model build: Resource, vlan label, bw service, during.
+                        // :: Resource
+                        Resource resPort = RdfOwl.createResource(model, portURN, Nml.BidirectionalPort);
+                        model.add(model.createStatement(resPort, Nml.belongsTo, resConnSubnet));
+                        model.add(model.createStatement(resConnSubnet, Nml.encoding, Nml.labeltype_Ethernet));
+                        model.add(model.createStatement(resPort, Nml.existsDuring, resConnLifetime));
+
+                        String nsiUrn = nsiService.nsiUrnFromInternal(fix.getPortUrn());
+                        model.add(model.createStatement(resPort, Nml.belongsTo, model.getResource(nsiUrn)));
+                        // :: VLAN Label
+                        Resource resPortLabel = RdfOwl.createResource(model, portURN + ":label+" + vlan, Nml.Label);
+                        model.add(model.createStatement(resPortLabel, Nml.labeltype, Nml.labeltype_Ethernet_Vlan));
+                        model.add(model.createStatement(resPortLabel, Nml.value, vlan));
+
+                        model.add(model.createStatement(resPortLabel, Nml.belongsTo, resPort));
+                        model.add(model.createStatement(resPort, Nml.hasLabel, resPortLabel));
+                        model.add(model.createStatement(resPortLabel, Nml.existsDuring, resConnLifetime));
+                        // :: BW Service
+                        String bw = fix.getEgressBandwidth().toString();
+                        Resource resPortBW = RdfOwl.createResource(model, portURN + ":service+bw",
+                                Mrs.BandwidthService);
+                        model.add(model.createStatement(resPortBW, Mrs.availableCapacity, bw));
+                        model.add(model.createStatement(resPortBW, Mrs.type, "guaranteedCapped"));
+                        model.add(model.createStatement(resPortBW, Mrs.unit, "mbps"));
+
+                        model.add(model.createStatement(resPortBW, Nml.belongsTo, resPort));
+                        model.add(model.createStatement(resPort, Nml.hasService, resPortBW));
+                        model.add(model.createStatement(resPortBW, Nml.existsDuring, resConnLifetime));
+                        //
+
+                        // Final relationship.
+                        model.add(model.createStatement(resConnSubnet, Nml.hasBidirectionalPort, resPort));
+                        model.add(model.createStatement(resSwSvc, Mrs.providesSubnet, resConnSubnet));
+                    }
+                }
+            } catch (JsonProcessingException e) {
+                // TODO Auto-generated catch block
+                e.printStackTrace();
+            }
         }
 
         ByteArrayOutputStream baos = new ByteArrayOutputStream();
         model.write(baos, "TURTLE");
-        SENSEModel newModel = new SENSEModel(UUID.randomUUID().toString(), now.toString(), baos.toString(),
-                resTopology.getURI());
+        String modelId = UUID.randomUUID().toString();
+        SENSEModel newModel = new SENSEModel(modelId, now.toString(), baos.toString(), resTopology.getURI());
         modelRepository.save(newModel);
+        log.info("[buildModel] new model built, id = {}", modelId);
         return newModel;
     }
 
@@ -290,6 +445,8 @@ public class SENSEService {
                 log.error("[SENSEService] SENSE CS processing of delta failed,  deltaId = {}", delta.getUuid(), ex);
                 delta = deltaRepo.findByUuid(id).get();
                 delta.setState(DeltaState.Failed);
+                delta.setStateDescription(ex.getMessage());
+
                 deltaRepo.save(delta);
 
                 throw ex;
@@ -367,7 +524,9 @@ public class SENSEService {
             // Iterate over connections and watch for errors.
             for (String connID : connections) {
                 Connection c = connSvc.findConnection(connID);
-                connSvc.release(c);
+                if (c != null) {
+                    connSvc.release(c);
+                }
             }
         }
 

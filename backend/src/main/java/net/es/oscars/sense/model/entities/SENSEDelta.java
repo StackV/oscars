@@ -62,6 +62,8 @@ public class SENSEDelta implements Serializable {
     private DeltaState _state; // The current _state of the delta resource. Will contain one of Accepting,
                                // Accepted, Committing, Committed, Activating, Activated, or Failed.
 
+    private String stateDescription;
+
     private String[] commits;
 
     private String[] terminates;

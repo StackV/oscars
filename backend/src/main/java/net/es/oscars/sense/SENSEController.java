@@ -2,7 +2,6 @@ package net.es.oscars.sense;
 
 import java.io.IOException;
 import java.io.PrintWriter;
-import java.security.Principal;
 import java.time.Instant;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
@@ -12,6 +11,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.NoSuchElementException;
+import java.util.Optional;
 import java.util.UUID;
 
 import javax.servlet.http.HttpServletRequest;
@@ -38,6 +38,7 @@ import lombok.extern.slf4j.Slf4j;
 import net.es.oscars.app.Startup;
 import net.es.oscars.app.exc.StartupException;
 import net.es.oscars.sense.db.SENSEDeltaRepository;
+import net.es.oscars.sense.db.SENSEModelRepository;
 import net.es.oscars.sense.model.DeltaModel;
 import net.es.oscars.sense.model.DeltaRequest;
 import net.es.oscars.sense.model.DeltaState;
@@ -59,6 +60,9 @@ public class SENSEController {
 
     @Autowired
     private SENSEDeltaRepository deltaRepo;
+
+    @Autowired
+    private SENSEModelRepository modelRepo;
 
     @Autowired
     private TopoService topoService;
@@ -84,12 +88,22 @@ public class SENSEController {
         // ret.put("time", Instant.now().toString());
         long ifModifiedSince = request.getDateHeader("If-Modified-Since");
         res.setHeader("Cache-Control", "max-age=3600");
-        long lastModified = topoService.getCurrent().getUpdated().getEpochSecond() * 1000; // I-M-S in milliseconds
+
+        // long lastModified =
+        // topoService.latestVersion().get().getUpdated().getEpochSecond() * 1000;
+        long lastModified = -1;
+
+        Optional<SENSEModel> latest = modelRepo.findFirstByOrderByCreationTimeDesc();
+        if (latest.isPresent()) {
+            String timeStr = latest.get().getCreationTime();
+            lastModified = LocalDateTime.parse(timeStr, DateTimeFormatter.ISO_OFFSET_DATE_TIME)
+                    .atZone(ZoneId.systemDefault()).toEpochSecond() * 1000;
+        }
 
         // if request did not set the header, we get a -1 in iMS
-        if (ifModifiedSince != -1 && lastModified <= ifModifiedSince) {
-            // log.debug("returning not-modified to browser, ims: "+ifModifiedSince+ " lm:
-            // "+lastModified);
+        if (lastModified != -1 && ifModifiedSince != -1 && lastModified <= ifModifiedSince) {
+            log.debug("[SENSEController] retrieveModel || Returning not-modified to browser, ims: {}, lm: {}",
+                    ifModifiedSince, lastModified);
             res.setStatus(HttpServletResponse.SC_NOT_MODIFIED);
             return;
         }
@@ -107,7 +121,7 @@ public class SENSEController {
 
     @RequestMapping(value = "/api/sense/deltas", method = RequestMethod.POST)
     @Transactional
-    public DeltaPushResponse pushDelta(@RequestBody DeltaRequest deltaRequest, Principal auth, HttpServletRequest req,
+    public DeltaPushResponse pushDelta(@RequestBody DeltaRequest deltaRequest, HttpServletRequest req,
             HttpServletResponse res, @RequestParam(defaultValue = "true") boolean summary) throws StartupException {
         this.startupCheck();
 
@@ -131,7 +145,7 @@ public class SENSEController {
 
         try {
             // Propagate the requested delta.
-            DeltaModel delta = senseService.propagateDelta(deltaRequest, auth.getName());
+            DeltaModel delta = senseService.propagateDelta(deltaRequest, null);
             if (delta == null) {
                 res.setStatus(HttpServletResponse.SC_INTERNAL_SERVER_ERROR);
                 return new DeltaPushResponse(null, null, "No delta returned from propagate push.");
@@ -152,6 +166,7 @@ public class SENSEController {
             // return new ResponseEntity<>(delta, headers, HttpStatus.CREATED);
             res.setHeader(HttpHeaders.CONTENT_LOCATION, contentLocation);
             res.setDateHeader(HttpHeaders.LAST_MODIFIED, lastModified);
+            res.setStatus(HttpServletResponse.SC_CREATED);
             return new DeltaPushResponse(delta.getState(), summary ? null : delta, null);
         } catch (Exception ex) {
             log.error("[SenseRmController] propagateDelta returning error:\n{}", ex);
@@ -219,7 +234,7 @@ public class SENSEController {
 
         try {
             SENSEDelta delta = deltaRepo.findByUuid(id).get();
-            return new DeltaStatusResponse(delta.getState().name(), null, null);
+            return new DeltaStatusResponse(delta.getState().name(), delta.getStateDescription(), null);
         } catch (NoSuchElementException ex) {
             res.setStatus(HttpServletResponse.SC_NOT_FOUND);
             return new DeltaStatusResponse(null, null, "Delta " + id + " not found.");

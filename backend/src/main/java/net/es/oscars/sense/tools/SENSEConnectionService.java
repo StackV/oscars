@@ -51,8 +51,10 @@ import net.es.nsi.lib.soap.gen.nsi_2_0.connection.ifce.ServiceException;
 import net.es.oscars.app.exc.NsiException;
 import net.es.oscars.nsi.ent.NsiMapping;
 import net.es.oscars.nsi.svc.NsiService;
+import net.es.oscars.pce.PceService;
 import net.es.oscars.resv.db.ConnectionRepository;
 import net.es.oscars.resv.ent.Connection;
+import net.es.oscars.resv.ent.EroHop;
 import net.es.oscars.resv.enums.BuildMode;
 import net.es.oscars.resv.enums.ConnectionMode;
 import net.es.oscars.resv.enums.Phase;
@@ -74,8 +76,12 @@ import net.es.oscars.web.beans.ConnChange;
 import net.es.oscars.web.beans.ConnChangeResult;
 import net.es.oscars.web.beans.ConnectionFilter;
 import net.es.oscars.web.beans.ConnectionList;
+import net.es.oscars.web.beans.Interval;
+import net.es.oscars.web.beans.PceRequest;
+import net.es.oscars.web.beans.PceResponse;
 import net.es.oscars.web.simple.Fixture;
 import net.es.oscars.web.simple.Junction;
+import net.es.oscars.web.simple.Pipe;
 import net.es.oscars.web.simple.SimpleConnection;
 import net.es.oscars.web.simple.SimpleTag;
 import net.es.oscars.web.simple.Validity;
@@ -97,6 +103,9 @@ public class SENSEConnectionService {
     private NsiService nsiSvc;
 
     @Autowired
+    private PceService pceSvc;
+
+    @Autowired
     private SENSEDeltaRepository deltaRepository;
 
     @Autowired
@@ -110,6 +119,8 @@ public class SENSEConnectionService {
     private String topoID;
     @Value("${resv.timeout}")
     private Integer resvTimeout;
+
+    private ObjectMapper mapper = new ObjectMapper();
 
     public void processDelta(String username, SENSEModel model, SENSEDelta delta, Optional<Model> reduction,
             Optional<Model> addition) throws Exception {
@@ -143,7 +154,7 @@ public class SENSEConnectionService {
                                 v.getMessage());
                         throw new Exception("Validation error: " + v.getMessage());
                     } else {
-                        connRequest.setUsername(username);
+                        connRequest.setUsername("admin");
                         Instant exp = Instant.now().plus(resvTimeout, ChronoUnit.SECONDS);
                         long secs = exp.toEpochMilli() / 1000L;
                         connRequest.setHeldUntil((int) secs);
@@ -358,7 +369,6 @@ public class SENSEConnectionService {
                 DeltaTranslation portTrans = new DeltaTranslation(topoID, biChild.getURI());
                 log.debug("[processDeltaAddition] translation: " + portTrans.toString());
                 log.debug("[processDeltaAddition] biChild: " + biChild.getURI());
-                pack.getTranslations().put(biChild.getURI(), portTrans);
                 //
 
                 // Check if junction has been added.
@@ -380,6 +390,8 @@ public class SENSEConnectionService {
                         MrsUnits.normalize(bws.getMaximumCapacity(), bws.getUnit(), MrsUnits.mbps));
                 portFixture.setMbps(
                         Math.toIntExact(MrsUnits.normalize(bws.getMaximumCapacity(), bws.getUnit(), MrsUnits.mbps)));
+
+                portTrans.setBwURN(bws.getId());
                 //
 
                 // ?
@@ -403,10 +415,31 @@ public class SENSEConnectionService {
                         .contentEquals(Nml.labeltype_Ethernet_Vlan.toString())) {
                     portFixture.setVlan(Integer.parseInt(label.getProperty(Nml.value).getObject().toString()));
                 }
+
+                portTrans.setVlanURN(label.getURI());
                 //
 
                 log.debug("[processDeltaAddition] portFixture: {}", portFixture);
+                pack.getTranslations().put(biChild.getURI(), portTrans);
                 connRequest.getFixtures().add(portFixture);
+            }
+
+            if (connRequest.getJunctions().size() > 1) {
+                List<Junction> junc = connRequest.getJunctions();
+                // If request is multi-device, need to add pipes.
+                String a = junc.get(0).getDevice();
+                String z = junc.get(junc.size() - 1).getDevice();
+
+                PceRequest pceReq = new PceRequest(new Interval(lifetimeDuring.getStart(), lifetimeDuring.getEnd()), a,
+                        z, 1000, 1000, null, null);
+                PceResponse calc = pceSvc.calculatePaths(pceReq);
+
+                List<String> ero = new ArrayList<>();
+                for (EroHop hop : calc.getFits().getAzEro()) {
+                    ero.add(hop.getUrn());
+                }
+                Pipe pipe = Pipe.builder().a(a).z(z).mbps(1000).ero(ero).build();
+                connRequest.getPipes().add(pipe);
             }
 
             // ?
@@ -436,13 +469,24 @@ public class SENSEConnectionService {
 
             // Add tags to connection request.
             List<SimpleTag> tagList = new ArrayList<>();
+            tagList.add(new SimpleTag("SENSE_CONNECTION_ID", switchingSubnet.getURI()));
+
+            Map<String, String> duringMap = new HashMap<>();
+            duringMap.put("urn", lifetimeDuring.getId());
+            duringMap.put("start", lifetimeDuring.getStart().toString());
+            duringMap.put("end", lifetimeDuring.getEnd().toString());
+            tagList.add(new SimpleTag("SENSE_CONNECTION_DURING", mapper.writeValueAsString(duringMap)));
+
             pack.getTranslations().forEach((k, v) -> {
                 Map<String, String> transMap = new HashMap<>();
-                transMap.put("sense", k);
+                transMap.put("port", k);
+                transMap.put("vlan", v.getVlanURN());
+                transMap.put("bw", v.getBwURN());
+
                 transMap.put("oscars", v.getJunction() + ":" + v.getPort());
                 try {
                     tagList.add(SimpleTag.builder().category("SENSE_TRANSLATION")
-                            .contents(new ObjectMapper().writeValueAsString(transMap)).build());
+                            .contents(mapper.writeValueAsString(transMap)).build());
                 } catch (JsonProcessingException e) {
                 }
             });

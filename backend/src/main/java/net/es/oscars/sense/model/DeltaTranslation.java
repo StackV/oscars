@@ -20,6 +20,9 @@ public class DeltaTranslation {
     private String junction;
     private String port;
 
+    private String vlanURN;
+    private String bwURN;
+
     public String toLabel() {
         return junction + URN_SEP + port;
     }

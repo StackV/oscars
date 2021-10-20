@@ -5,6 +5,7 @@ import com.fasterxml.jackson.annotation.JsonIgnore;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import lombok.*;
 
+import javax.persistence.Column;
 import javax.persistence.Entity;
 import javax.persistence.GeneratedValue;
 import javax.persistence.Id;
@@ -16,8 +17,7 @@ import javax.persistence.Id;
 @NoArgsConstructor
 public class Tag {
     @JsonCreator
-    public Tag(@JsonProperty("category") @NonNull String category,
-               @JsonProperty("contents") @NonNull String contents) {
+    public Tag(@JsonProperty("category") @NonNull String category, @JsonProperty("contents") @NonNull String contents) {
         this.category = category;
         this.contents = contents;
     }
@@ -30,6 +30,7 @@ public class Tag {
     private String category;
 
     @NonNull
+    @Column(columnDefinition = "text")
     private String contents;
 
 }
