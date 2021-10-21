@@ -17,6 +17,8 @@ public interface SENSEModelRepository extends CrudRepository<SENSEModel, Long> {
 
     Optional<SENSEModel> findFirstByOrderByCreationTimeDesc();
 
+    Optional<SENSEModel> findFirstByOrderByCreationTimeAsc();
+
     List<SENSEModel> findByHref(String href);
 
     List<SENSEModel> findByCreationTime(String creationTime);

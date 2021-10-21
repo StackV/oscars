@@ -48,9 +48,6 @@ import org.springframework.stereotype.Component;
 
 import lombok.extern.slf4j.Slf4j;
 import net.es.nsi.lib.soap.gen.nsi_2_0.connection.ifce.ServiceException;
-import net.es.oscars.app.exc.NsiException;
-import net.es.oscars.nsi.ent.NsiMapping;
-import net.es.oscars.nsi.svc.NsiService;
 import net.es.oscars.pce.PceService;
 import net.es.oscars.resv.db.ConnectionRepository;
 import net.es.oscars.resv.ent.Connection;
@@ -72,8 +69,6 @@ import net.es.oscars.sense.model.DeltaConnectionData;
 import net.es.oscars.sense.model.DeltaTranslation;
 import net.es.oscars.sense.model.entities.SENSEDelta;
 import net.es.oscars.sense.model.entities.SENSEModel;
-import net.es.oscars.web.beans.ConnChange;
-import net.es.oscars.web.beans.ConnChangeResult;
 import net.es.oscars.web.beans.ConnectionFilter;
 import net.es.oscars.web.beans.ConnectionList;
 import net.es.oscars.web.beans.Interval;
@@ -98,9 +93,6 @@ public class SENSEConnectionService {
 
     @Autowired
     private ConnService connSvc;
-
-    @Autowired
-    private NsiService nsiSvc;
 
     @Autowired
     private PceService pceSvc;
@@ -189,9 +181,14 @@ public class SENSEConnectionService {
                 commitList.add(conn.getConnectionId());
             }
             delta.setCommits(commitList.toArray(new String[commitList.size()]));
+        } else {
+            delta.setCommits(new String[0]);
         }
+
         if (terminates != null) {
             delta.setTerminates(terminates.toArray(new String[terminates.size()]));
+        } else {
+            delta.setTerminates(new String[0]);
         }
         deltaRepository.save(delta);
 
@@ -254,20 +251,6 @@ public class SENSEConnectionService {
                 if (found.getTotalSize() > 0) {
                     log.debug("[processDeltaReduction] Active connecton found for port {}", portTrans.toLabel());
                     Connection conn = found.getConnections().get(0);
-
-                    // Dismantle found connection.
-                    try {
-                        Optional<NsiMapping> om = nsiSvc.getMappingForOscarsId(conn.getConnectionId());
-                        if (om.isPresent()) {
-                            nsiSvc.forcedEnd(om.get());
-                        }
-                    } catch (NsiException ex) {
-                        log.error(ex.getMessage(), ex);
-                    }
-                    ConnChangeResult res = connSvc.release(conn);
-                    if (res.getWhat().equals(ConnChange.ARCHIVED)) {
-                        log.debug("[processDeltaReduction] Archiving connection {}", conn.getConnectionId());
-                    }
                     ret.add(conn.getConnectionId());
                 } else {
                     // No active connection found.
@@ -419,6 +402,12 @@ public class SENSEConnectionService {
                 portTrans.setVlanURN(label.getURI());
                 //
 
+                // Get potential tag
+                Statement tagRef = biChild.getProperty(Mrs.tag);
+                if (tagRef != null)
+                    portTrans.setTagURN(tagRef.getString());
+                //
+
                 log.debug("[processDeltaAddition] portFixture: {}", portFixture);
                 pack.getTranslations().put(biChild.getURI(), portTrans);
                 connRequest.getFixtures().add(portFixture);
@@ -482,6 +471,7 @@ public class SENSEConnectionService {
                 transMap.put("port", k);
                 transMap.put("vlan", v.getVlanURN());
                 transMap.put("bw", v.getBwURN());
+                transMap.put("tag", v.getTagURN());
 
                 transMap.put("oscars", v.getJunction() + ":" + v.getPort());
                 try {

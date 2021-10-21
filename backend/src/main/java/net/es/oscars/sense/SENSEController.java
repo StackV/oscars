@@ -2,9 +2,11 @@ package net.es.oscars.sense;
 
 import java.io.IOException;
 import java.io.PrintWriter;
+import java.time.Duration;
 import java.time.Instant;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
+import java.time.ZonedDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -23,6 +25,7 @@ import com.google.common.base.Strings;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.Authentication;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.bind.annotation.ExceptionHandler;
@@ -42,14 +45,13 @@ import net.es.oscars.sense.db.SENSEModelRepository;
 import net.es.oscars.sense.model.DeltaModel;
 import net.es.oscars.sense.model.DeltaRequest;
 import net.es.oscars.sense.model.DeltaState;
-import net.es.oscars.sense.model.api.DeltaCommitResponse;
+import net.es.oscars.sense.model.api.DeltaErrorResponse;
 import net.es.oscars.sense.model.api.DeltaPushResponse;
 import net.es.oscars.sense.model.api.DeltaStatusResponse;
 import net.es.oscars.sense.model.entities.SENSEDelta;
 import net.es.oscars.sense.model.entities.SENSEModel;
 import net.es.oscars.sense.tools.UrlHelper;
 import net.es.oscars.topo.pop.ConsistencyException;
-import net.es.oscars.topo.svc.TopoService;
 
 @RestController
 @Slf4j
@@ -63,9 +65,6 @@ public class SENSEController {
 
     @Autowired
     private SENSEModelRepository modelRepo;
-
-    @Autowired
-    private TopoService topoService;
 
     @Autowired
     private Startup startup;
@@ -83,25 +82,24 @@ public class SENSEController {
             @RequestParam(defaultValue = "true") boolean encode)
             throws ConsistencyException, StartupException, IOException {
         this.startupCheck();
-        // HashMap<String, String> ret = new HashMap<>();
-        // ret.put("data", senseService.buildModel());
-        // ret.put("time", Instant.now().toString());
         long ifModifiedSince = request.getDateHeader("If-Modified-Since");
         res.setHeader("Cache-Control", "max-age=3600");
 
         // long lastModified =
         // topoService.latestVersion().get().getUpdated().getEpochSecond() * 1000;
         long lastModified = -1;
+        long timePassed = -1;
 
         Optional<SENSEModel> latest = modelRepo.findFirstByOrderByCreationTimeDesc();
         if (latest.isPresent()) {
             String timeStr = latest.get().getCreationTime();
-            lastModified = LocalDateTime.parse(timeStr, DateTimeFormatter.ISO_OFFSET_DATE_TIME)
-                    .atZone(ZoneId.systemDefault()).toEpochSecond() * 1000;
+            Instant time = ZonedDateTime.parse(timeStr, DateTimeFormatter.ISO_DATE_TIME).toInstant();
+            lastModified = time.toEpochMilli() * 1000;
+            timePassed = Duration.between(time, Instant.now()).toMillis() / 1000;
         }
 
         // if request did not set the header, we get a -1 in iMS
-        if (lastModified != -1 && ifModifiedSince != -1 && lastModified <= ifModifiedSince) {
+        if (lastModified != -1 && ifModifiedSince != -1 && (timePassed < 120 || lastModified <= ifModifiedSince)) {
             log.debug("[SENSEController] retrieveModel || Returning not-modified to browser, ims: {}, lm: {}",
                     ifModifiedSince, lastModified);
             res.setStatus(HttpServletResponse.SC_NOT_MODIFIED);
@@ -177,38 +175,40 @@ public class SENSEController {
 
     @RequestMapping(value = "/api/sense/deltas/{id}/actions/commit", method = RequestMethod.PUT)
     @Transactional
-    public DeltaCommitResponse commitDelta(@PathVariable String id, HttpServletResponse res,
-            @RequestParam(defaultValue = "true") boolean summary) throws StartupException {
+    public ResponseEntity<DeltaErrorResponse> commitDelta(@PathVariable String id) throws StartupException {
         // ID required.
         if (id == null || id.isEmpty()) {
-            res.setStatus(HttpServletResponse.SC_BAD_REQUEST);
-            return new DeltaCommitResponse(null, null, "No id specified.");
+            DeltaErrorResponse err = new DeltaErrorResponse("bad_request", "No delta id specified.", null);
+            return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(err);
         }
 
         // Retrieve delta and associated connections.
         try {
             SENSEDelta delta = deltaRepo.findByUuid(id).get();
             if (!delta.getState().equals(DeltaState.Accepted)) {
-                res.setStatus(HttpServletResponse.SC_NOT_ACCEPTABLE);
-                return new DeltaCommitResponse(null, null,
-                        "Delta " + id + " not in ACCEPTED state. Is instead " + delta.getState());
+                DeltaErrorResponse err = new DeltaErrorResponse("bad_state",
+                        "Delta " + id + " not in ACCEPTED state. Is instead " + delta.getState(), null);
+                return ResponseEntity.status(HttpStatus.NOT_ACCEPTABLE).body(err);
             }
-            delta = senseService.commitDelta(delta);
-
-            return new DeltaCommitResponse(delta.getState(), summary ? null : delta, null);
+            DeltaErrorResponse err = senseService.commitDelta(delta);
+            if (err == null) {
+                return ResponseEntity.ok().build();
+            } else {
+                return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(err);
+            }
         } catch (NoSuchElementException ex) {
-            res.setStatus(HttpServletResponse.SC_NOT_FOUND);
-            return new DeltaCommitResponse(null, null, "No delta " + id + " found.");
+            DeltaErrorResponse err = new DeltaErrorResponse("not_found", "No delta " + id + " found.", null);
+            return ResponseEntity.status(HttpStatus.NOT_FOUND).body(err);
         }
     }
 
     @RequestMapping(value = "/api/sense/deltas/{id}/actions/release", method = RequestMethod.PUT)
     @Transactional
-    public DeltaCommitResponse releaseDelta(@PathVariable String id, HttpServletResponse res) throws StartupException {
+    public void releaseDelta(@PathVariable String id, HttpServletResponse res) throws StartupException {
         // ID required.
         if (id == null || id.isEmpty()) {
             res.setStatus(HttpServletResponse.SC_BAD_REQUEST);
-            return new DeltaCommitResponse(null, null, "No id specified.");
+            return;
         }
 
         // Retrieve delta and associated connections.
@@ -216,10 +216,10 @@ public class SENSEController {
             SENSEDelta delta = deltaRepo.findByUuid(id).get();
             senseService.releaseDelta(delta);
 
-            return null;
+            return;
         } catch (NoSuchElementException ex) {
             res.setStatus(HttpServletResponse.SC_NOT_FOUND);
-            return new DeltaCommitResponse(null, null, "No delta " + id + " found.");
+            return;
         }
     }
 

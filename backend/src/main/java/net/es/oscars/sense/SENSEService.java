@@ -29,9 +29,11 @@ import org.springframework.transaction.annotation.Transactional;
 import lombok.Data;
 import lombok.extern.slf4j.Slf4j;
 import net.es.oscars.app.Startup;
+import net.es.oscars.app.exc.NsiException;
 import net.es.oscars.app.exc.PCEException;
 import net.es.oscars.app.exc.PSSException;
 import net.es.oscars.app.exc.StartupException;
+import net.es.oscars.nsi.ent.NsiMapping;
 import net.es.oscars.nsi.svc.NsiPopulator;
 import net.es.oscars.nsi.svc.NsiService;
 import net.es.oscars.resv.ent.Connection;
@@ -49,6 +51,7 @@ import net.es.oscars.sense.definitions.Sd;
 import net.es.oscars.sense.model.DeltaModel;
 import net.es.oscars.sense.model.DeltaRequest;
 import net.es.oscars.sense.model.DeltaState;
+import net.es.oscars.sense.model.api.DeltaErrorResponse;
 import net.es.oscars.sense.model.entities.SENSEDelta;
 import net.es.oscars.sense.model.entities.SENSEModel;
 import net.es.oscars.sense.tools.ModelUtil;
@@ -78,6 +81,9 @@ public class SENSEService {
 
     @Autowired
     private ConnService connSvc;
+
+    @Autowired
+    private NsiService nsiSvc;
 
     @Autowired
     private SENSEModelRepository modelRepository;
@@ -273,11 +279,13 @@ public class SENSEService {
                                 // :: Resource
                                 Resource resPort = RdfOwl.createResource(model, tagMap.get("port").asText(),
                                         Nml.BidirectionalPort);
-                                model.add(model.createStatement(resPort, Nml.belongsTo, resConnSubnet));
-                                model.add(model.createStatement(resConnSubnet, Nml.encoding, Nml.labeltype_Ethernet));
                                 model.add(model.createStatement(resPort, Nml.existsDuring, resConnLifetime));
+                                if (tagMap.has("tag"))
+                                    model.add(model.createStatement(resPort, Mrs.tag, tagMap.get("tag").asText()));
 
                                 String nsiUrn = nsiService.nsiUrnFromInternal(fix.getPortUrn());
+                                model.add(model.createStatement(model.getResource(nsiUrn), Nml.hasBidirectionalPort,
+                                        resPort));
                                 model.add(model.createStatement(resPort, Nml.belongsTo, model.getResource(nsiUrn)));
                                 // :: VLAN Label
                                 String vlan = fix.getVlan().getVlanId().toString();
@@ -305,6 +313,7 @@ public class SENSEService {
 
                                 // Final relationship.
                                 model.add(model.createStatement(resConnSubnet, Nml.hasBidirectionalPort, resPort));
+                                model.add(model.createStatement(resPort, Nml.belongsTo, resConnSubnet));
                                 model.add(model.createStatement(resSwSvc, Mrs.providesSubnet, resConnSubnet));
                             }
 
@@ -336,6 +345,7 @@ public class SENSEService {
                         model.add(model.createStatement(resPort, Nml.existsDuring, resConnLifetime));
 
                         String nsiUrn = nsiService.nsiUrnFromInternal(fix.getPortUrn());
+                        model.add(model.createStatement(model.getResource(nsiUrn), Nml.hasBidirectionalPort, resPort));
                         model.add(model.createStatement(resPort, Nml.belongsTo, model.getResource(nsiUrn)));
                         // :: VLAN Label
                         Resource resPortLabel = RdfOwl.createResource(model, portURN + ":label+" + vlan, Nml.Label);
@@ -375,6 +385,14 @@ public class SENSEService {
         SENSEModel newModel = new SENSEModel(modelId, now.toString(), baos.toString(), resTopology.getURI());
         modelRepository.save(newModel);
         log.info("[buildModel] new model built, id = {}", modelId);
+
+        if (modelRepository.count() > 10) {
+            try {
+                modelRepository.delete(modelRepository.findFirstByOrderByCreationTimeAsc().get());
+            } catch (Exception ex) {
+            }
+        }
+
         return newModel;
     }
 
@@ -481,7 +499,7 @@ public class SENSEService {
         }
     }
 
-    public SENSEDelta commitDelta(SENSEDelta delta) throws StartupException {
+    public DeltaErrorResponse commitDelta(SENSEDelta delta) throws StartupException {
         // Retrieve delta and associated connections.
         List<String> connections = new ArrayList<>();
         connections.addAll(Arrays.asList(delta.getCommits()));
@@ -495,23 +513,36 @@ public class SENSEService {
         deltaRepo.save(delta);
 
         // Iterate over connections and watch for errors.
-        for (String connID : connections) {
-            ConnChangeResult connRes = commitConnection(connID);
-            if (connRes == null) {
-                log.error("[commitDelta] Connection {} commit error. Ending process.", connID);
-
+        for (String connID : delta.getCommits()) {
+            try {
+                ConnChangeResult connRes = commitConnection(connID);
+                log.debug("[commitDelta] Connection {} change result.\n{}", connID, connRes);
+            } catch (PSSException | PCEException | ConnException ex) {
                 delta.setState(DeltaState.Failed);
                 deltaRepo.save(delta);
-            } else {
-                log.debug("[commitDelta] Connection {} change result.\n{}", connID, connRes);
 
-                delta.setState(DeltaState.Committed);
-                deltaRepo.save(delta);
-
-                buildModel();
+                return new DeltaErrorResponse("committing-" + connID, ex.getMessage(), null);
             }
         }
-        return delta;
+
+        for (String connID : delta.getTerminates()) {
+            try {
+                ConnChangeResult connRes = archiveConnection(connID);
+                log.debug("[commitDelta] Connection {} change result.\n{}", connID, connRes);
+            } catch (NsiException ex) {
+                delta.setState(DeltaState.Failed);
+                deltaRepo.save(delta);
+
+                return new DeltaErrorResponse("archiving-" + connID, ex.getMessage(), null);
+            }
+        }
+
+        delta.setState(DeltaState.Committed);
+        deltaRepo.save(delta);
+
+        buildModel();
+
+        return null;
     }
 
     public void releaseDelta(SENSEDelta delta) throws StartupException {
@@ -536,21 +567,29 @@ public class SENSEService {
         return;
     }
 
-    private ConnChangeResult commitConnection(String connID) {
-        try {
-            Connection c = connSvc.findConnection(connID);
-            // if (!c.getUsername().equals(username)) {
-            // c.setUsername(username);
-            // }
+    private ConnChangeResult commitConnection(String connID) throws PSSException, PCEException, ConnException {
+        Connection c = connSvc.findConnection(connID);
+        // if (!c.getUsername().equals(username)) {
+        // c.setUsername(username);
+        // }
 
-            log.info("[commitConnection] Committing connection " + connID);
-            return connSvc.commit(c);
-        } catch (PSSException | PCEException | ConnException ex) {
-            log.info("[commitConnection] Error committing " + connID, ex);
-            return null;
-        } catch (IllegalArgumentException ex) {
-            log.info("[commitConnection] Error committing " + connID, ex);
-            return null;
+        log.info("[commitConnection] Committing connection " + connID);
+        return connSvc.commit(c);
+    }
+
+    private ConnChangeResult archiveConnection(String connID) throws NsiException {
+        Connection conn = connSvc.findConnection(connID);
+        // if (!c.getUsername().equals(username)) {
+        // c.setUsername(username);
+        // }
+
+        log.info("[commitConnection] Archiving connection " + connID);
+
+        // Dismantle found connection.
+        Optional<NsiMapping> om = nsiSvc.getMappingForOscarsId(connID);
+        if (om.isPresent()) {
+            nsiSvc.forcedEnd(om.get());
         }
+        return connSvc.release(conn);
     }
 }
