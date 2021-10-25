@@ -66,7 +66,6 @@ import net.es.oscars.topo.svc.TopoService;
 import net.es.oscars.web.beans.ConnChangeResult;
 import net.es.oscars.web.beans.ConnException;
 import net.es.oscars.web.beans.ConnectionFilter;
-import net.es.oscars.web.beans.ConnectionList;
 
 @Transactional
 @Service
@@ -233,8 +232,9 @@ public class SENSEService {
 
         ConnectionFilter filter = ConnectionFilter.builder().phase("RESERVED").state(State.ACTIVE).page(1)
                 .sizePerPage(-1).build();
-        ConnectionList found = connSvc.filter(filter);
-        for (Connection conn : found.getConnections()) {
+        List<Connection> found = connSvc.filter(filter).getConnections().stream()
+                .filter(conn -> conn.getState().equals(State.ACTIVE)).collect(Collectors.toList());
+        for (Connection conn : found) {
             // For each connection, create switching subnet, and bidirectional ports.
             Optional<Tag> connTagID = conn.getTags().stream()
                     .filter(tag -> tag.getCategory().equals("SENSE_CONNECTION_ID")).findFirst();

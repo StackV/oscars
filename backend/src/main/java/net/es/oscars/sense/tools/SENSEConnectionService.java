@@ -30,6 +30,7 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.TimeoutException;
+import java.util.stream.Collectors;
 
 import javax.xml.datatype.DatatypeConfigurationException;
 
@@ -70,7 +71,6 @@ import net.es.oscars.sense.model.DeltaTranslation;
 import net.es.oscars.sense.model.entities.SENSEDelta;
 import net.es.oscars.sense.model.entities.SENSEModel;
 import net.es.oscars.web.beans.ConnectionFilter;
-import net.es.oscars.web.beans.ConnectionList;
 import net.es.oscars.web.beans.Interval;
 import net.es.oscars.web.beans.PceRequest;
 import net.es.oscars.web.beans.PceResponse;
@@ -247,10 +247,11 @@ public class SENSEConnectionService {
                 // Find the connection that is currently using this port fixture and VLAN.
                 ConnectionFilter filter = ConnectionFilter.builder().phase("RESERVED").state(State.ACTIVE).page(1)
                         .sizePerPage(1).ports(Arrays.asList(portTrans.toLabel())).vlans(Arrays.asList(vlan)).build();
-                ConnectionList found = connSvc.filter(filter);
-                if (found.getTotalSize() > 0) {
+                List<Connection> found = connSvc.filter(filter).getConnections().stream()
+                        .filter(conn -> conn.getState().equals(State.ACTIVE)).collect(Collectors.toList());
+                if (found.size() > 0) {
                     log.debug("[processDeltaReduction] Active connecton found for port {}", portTrans.toLabel());
-                    Connection conn = found.getConnections().get(0);
+                    Connection conn = found.get(0);
                     ret.add(conn.getConnectionId());
                 } else {
                     // No active connection found.
